@@ -1,0 +1,15 @@
+name = "glats"
+version = "0.1.0"
+description = "A NATS client for Gleam. This wraps Elixir's client, Gnat."
+
+licences = ["MIT"]
+repository = { type = "github", user = "arnarg", repo = "glats" }
+
+[dependencies]
+gleam_stdlib = "~> 0.28"
+gnat = "~> 1.6"
+gleam_erlang = "~> 0.18"
+gleam_otp = "~> 0.5"
+
+[dev-dependencies]
+gleeunit = "~> 0.10"
