@@ -2,7 +2,8 @@ import gleam/option.{Some}
 import gleam/map
 import gleeunit
 import gleeunit/should
-import glats.{Settings, default_settings}
+import glats.{default_settings}
+import glats/connection.{Settings}
 
 pub fn main() {
   gleeunit.main()
