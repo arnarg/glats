@@ -30,7 +30,6 @@
 //// }
 //// ```
 
-import gleam/io
 import gleam/option.{None, Option, Some}
 import gleam/map.{Map}
 import gleam/dynamic.{Dynamic}
@@ -60,13 +59,24 @@ pub type Settings {
   )
 }
 
+pub type ServerError {
+  Timeout
+  NoResponders
+  Unknown
+}
+
 pub type Command {
   Subscribe(
-    receiver: Subject(Dynamic),
+    from: Subject(Result(String, String)),
+    subscriber: Subject(Dynamic),
     subject: String,
-    handler: MessageHandler,
   )
-  Publish(message: Message)
+  Publish(from: Subject(Result(Nil, String)), message: Message)
+  Request(
+    from: Subject(Result(Message, ServerError)),
+    subject: String,
+    message: String,
+  )
 }
 
 type ConnectionState {
@@ -89,11 +99,17 @@ external fn gnat_start_link(
 external fn gnat_pub(Pid, String, String, Dynamic) -> Result(Nil, String) =
   "Elixir.Gnat" "pub"
 
+external fn gnat_request(Pid, String, String, Dynamic) -> Result(Dynamic, Atom) =
+  "Elixir.Gnat" "request"
+
 external fn gnat_sub(Pid, Pid, String, Dynamic) -> Result(String, String) =
   "Elixir.Gnat" "sub"
 
 external fn convert_msg(Dynamic) -> Result(Message, String) =
   "Elixir.Glats" "convert_msg"
+
+external fn convert_bare_msg(Dynamic) -> Result(Message, String) =
+  "Elixir.Glats" "convert_bare_msg"
 
 // Basic public API
 
@@ -117,7 +133,7 @@ pub fn connect(settings: Settings) {
         )
       {
         Ok(pid) -> actor.Ready(ConnectionState(nats: pid), selector)
-        Error(err) -> actor.Failed("starting connection failed")
+        Error(_) -> actor.Failed("starting connection failed")
       }
     },
     init_timeout: 5000,
@@ -127,11 +143,35 @@ pub fn connect(settings: Settings) {
 
 fn connection_loop(cmd: Command, state: ConnectionState) {
   case cmd {
-    Publish(message) -> {
-      gnat_pub(state.nats, message.subject, message.body, dynamic.from([]))
+    Publish(from, message) -> {
+      case
+        gnat_pub(state.nats, message.subject, message.body, dynamic.from([]))
+      {
+        Ok(Nil) -> process.send(from, Ok(Nil))
+        _ -> process.send(from, Error("unknown publish error"))
+      }
       actor.Continue(state)
     }
-    Subscribe(receiver, subject, handler) -> {
+    Request(from, subject, message) -> {
+      case gnat_request(state.nats, subject, message, dynamic.from([])) {
+        Ok(msg) ->
+          convert_bare_msg(msg)
+          |> result.map_error(fn(_) { Unknown })
+          |> process.send(from, _)
+        Error(err) ->
+          case
+            err
+            |> atom.to_string
+          {
+            "timeout" -> Error(Timeout)
+            "no_responders" -> Error(NoResponders)
+            _ -> Error(Unknown)
+          }
+          |> process.send(from, _)
+      }
+      actor.Continue(state)
+    }
+    Subscribe(from, receiver, subject) -> {
       gnat_sub(
         state.nats,
         receiver
@@ -139,6 +179,8 @@ fn connection_loop(cmd: Command, state: ConnectionState) {
         subject,
         dynamic.from([]),
       )
+      |> process.send(from, _)
+
       actor.Continue(state)
     }
   }
@@ -152,8 +194,14 @@ pub fn publish(nats: Subject(Command), subject: String, message: String) {
 /// Publishes a single message to NATS using the data from a provided `Message`
 /// record.
 pub fn publish_message(nats: Subject(Command), message: Message) {
-  // TODO: make this a call
-  process.send(nats, Publish(message))
+  process.call(nats, Publish(_, message), 10_000)
+}
+
+/// Sends a request and listens for a response synchronously.
+///
+/// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
+pub fn request(nats: Subject(Command), subject: String, message: String) {
+  process.call(nats, Request(_, subject, message), 10_000)
 }
 
 /// Subscribes to a NATS subject, providing a handler that will be called on
@@ -171,11 +219,13 @@ pub fn subscribe(
         process.new_selector()
         |> process.selecting_anything(map_message)
 
-      process.send(nats, Subscribe(receiver, subject, handler))
-
-      actor.Ready(SubscriptionState(nats, handler), selector)
+      // Send a subscription request to connection process.
+      case process.call(nats, Subscribe(_, receiver, subject), 10_000) {
+        Ok(_) -> actor.Ready(SubscriptionState(nats, handler), selector)
+        Error(err) -> actor.Failed(err)
+      }
     },
-    init_timeout: 1000,
+    init_timeout: 10_000,
     loop: fn(msg: Message, state) {
       case state.handler(msg, state.nats) {
         Ok(_) -> actor.Continue(state)
@@ -185,6 +235,8 @@ pub fn subscribe(
   ))
 }
 
+/// Converts the dynamic data returned from Gnat in elixir to a typed message
+/// in gleam.
 fn map_message(msg: Dynamic) {
   msg
   |> convert_msg
