@@ -40,8 +40,17 @@ import glats/message
 pub type MessageHandler =
   handler.MessageHandler
 
+pub type RequestHandler =
+  handler.RequestHandler
+
 pub type Message =
   message.Message
+
+pub type Request =
+  handler.Request
+
+pub type Response =
+  handler.Response
 
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
@@ -67,14 +76,58 @@ pub fn request(conn: Subject(Command), subject: String, message: String) {
   connection.request(conn, subject, message)
 }
 
-/// Start a subscription handler that will call the passed in
+/// Start a subscription handler that will call the passed in handler
 /// for every message received on the provided subject.
+///
+/// ```gleam
+/// pub fn main() {
+///   new_settings("localhost", 4222)
+///   |> connect
+///   |> handle_subscription("some.nats.subject", sub_handler)
+///
+///   process.sleep_forever()
+/// }
+///
+/// pub fn sub_handler(message: Message, conn: Subject(Command)) {
+///   io.debug(message)
+///
+///   Ok(Nil)
+/// }
+/// ```
 pub fn handle_subscription(
   conn: Subject(Command),
   subject: String,
   handler: MessageHandler,
 ) {
   handler.handle_subscription(conn, subject, handler)
+}
+
+/// Start a request handler that will call the passed in handler
+/// for every message received on the provided subject and automatically
+/// respond with the response returned by the handler.
+///
+/// ```gleam
+/// pub fn main() {
+///   new_settings("localhost", 4222)
+///   |> connect
+///   |> handle_request("some.nats.subject", req_handler)
+///
+///   process.sleep_forever()
+/// }
+///
+/// pub fn req_handler(request: Request, conn: Subject(Command)) {
+///   io.debug(request)
+///
+///   // Will respond with the same data as the request (ping pong).
+///   Ok(Response(headers: request.headers, body: request.body))
+/// }
+/// ```
+pub fn handle_request(
+  conn: Subject(Command),
+  subject: String,
+  handler: RequestHandler,
+) {
+  handler.handle_request(conn, subject, handler)
 }
 
 // Settings builders

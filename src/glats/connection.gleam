@@ -52,7 +52,7 @@ external fn gnat_start_link(
 ) -> actor.ErlangStartResult =
   "Elixir.Gnat" "start_link"
 
-external fn gnat_pub(Pid, String, String, Dynamic) -> Result(Nil, String) =
+external fn gnat_pub(Pid, String, String, Dynamic) -> Atom =
   "Elixir.Gnat" "pub"
 
 external fn gnat_request(Pid, String, String, Dynamic) -> Result(Dynamic, Atom) =
@@ -129,8 +129,11 @@ fn handle_command(cmd: Command, state: State) {
 
 // Handles a single publish command.
 fn handle_publish(from, message: Message, state: State) {
-  case gnat_pub(state.nats, message.subject, message.body, dynamic.from([])) {
-    Ok(Nil) -> process.send(from, Ok(Nil))
+  case
+    gnat_pub(state.nats, message.subject, message.body, dynamic.from([]))
+    |> atom.to_string
+  {
+    "ok" -> process.send(from, Ok(Nil))
     _ -> process.send(from, Error("unknown publish error"))
   }
   actor.Continue(state)
