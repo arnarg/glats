@@ -1,8 +1,7 @@
 //// This module provides the most basic NATS client.
 
-import gleam/option.{None, Some}
-import gleam/map
-import glats/connection.{Connection, Settings}
+import glats/connection.{Connection}
+import glats/settings.{Settings}
 import glats/handler.{MessageHandler, RequestHandler}
 import glats/message.{Message}
 
@@ -82,73 +81,4 @@ pub fn handle_request(
   handler: RequestHandler,
 ) {
   handler.handle_request(conn, subject, handler)
-}
-
-// Settings builders
-
-/// Creates a settings with `host` and `port` set.
-///
-/// Use builder functions `with_*` to add additional options.
-///
-/// ```gleam
-/// new_settings("localhost", 4222)
-/// |> with_ca("/tmp/ca.crt")
-/// ```
-pub fn new_settings(host: String, port: Int) {
-  Settings(host: Some(host), port: Some(port), tls: None, ssl_opts: None)
-}
-
-/// Returns settings with `localhost:4222`.
-///
-/// Use builder functions `with_*` to add additional options.
-///
-/// ```gleam
-/// default_settings()
-/// |> with_port(6222)
-/// |> with_ca("/tmp/ca.crt")
-/// ```
-pub fn default_settings() {
-  new_settings("localhost", 4222)
-}
-
-/// Sets the host for connection settings.
-pub fn with_host(old: Settings, host: String) {
-  Settings(..old, host: Some(host))
-}
-
-/// Sets the port for connection settings.
-pub fn with_port(old: Settings, port: Int) {
-  Settings(..old, port: Some(port))
-}
-
-/// Sets the CA file to use in connection settings.
-pub fn with_ca(old: Settings, cafile: String) {
-  Settings(
-    ..old,
-    tls: Some(True),
-    ssl_opts: Some(
-      old.ssl_opts
-      |> option.unwrap(map.new())
-      |> map.insert("cacertfile", cafile),
-    ),
-  )
-}
-
-/// Sets client certificates in connection settings.
-pub fn with_client_cert(old: Settings, certfile: String, keyfile: String) {
-  Settings(
-    ..old,
-    tls: Some(True),
-    ssl_opts: Some(
-      old.ssl_opts
-      |> option.unwrap(map.new())
-      |> map.insert("certfile", certfile)
-      |> map.insert("keyfile", keyfile),
-    ),
-  )
-}
-
-/// Explicitly disables tls and resets ssl_opts for the connection settings.
-pub fn with_no_tls(old: Settings) {
-  Settings(..old, tls: Some(False), ssl_opts: None)
 }

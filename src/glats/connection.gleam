@@ -1,22 +1,13 @@
 import gleam/map.{Map}
 import gleam/list
 import gleam/dynamic.{Dynamic}
-import gleam/option.{None, Option, Some}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/otp/actor.{StartError}
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
 import glats/message.{Message}
-
-/// Connection settings for NATS connection.
-pub type Settings {
-  Settings(
-    host: Option(String),
-    port: Option(Int),
-    tls: Option(Bool),
-    ssl_opts: Option(Map(String, String)),
-  )
-}
+import glats/settings.{Settings}
 
 pub type Connection =
   Subject(Command)
