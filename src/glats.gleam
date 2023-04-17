@@ -82,6 +82,11 @@ pub fn handle_subscription(
 /// Creates a settings with `host` and `port` set.
 ///
 /// Use builder functions `with_*` to add additional options.
+///
+/// ```gleam
+/// new_settings("localhost", 4222)
+/// |> with_ca("/tmp/ca.crt")
+/// ```
 pub fn new_settings(host: String, port: Int) {
   Settings(host: Some(host), port: Some(port), tls: None, ssl_opts: None)
 }
@@ -89,6 +94,12 @@ pub fn new_settings(host: String, port: Int) {
 /// Returns settings with `localhost:4222`.
 ///
 /// Use builder functions `with_*` to add additional options.
+///
+/// ```gleam
+/// default_settings()
+/// |> with_port(6222)
+/// |> with_ca("/tmp/ca.crt")
+/// ```
 pub fn default_settings() {
   new_settings("localhost", 4222)
 }
