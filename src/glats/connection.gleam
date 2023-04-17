@@ -3,10 +3,10 @@ import gleam/list
 import gleam/dynamic.{Dynamic}
 import gleam/option.{None, Option, Some}
 import gleam/result
-import gleam/otp/actor
+import gleam/otp/actor.{StartError}
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
-import glats/message.{Message, new_message}
+import glats/message.{Message}
 
 /// Connection settings for NATS connection.
 pub type Settings {
@@ -17,6 +17,9 @@ pub type Settings {
     ssl_opts: Option(Map(String, String)),
   )
 }
+
+pub type Connection =
+  Subject(Command)
 
 /// Command to send to the connection actor.
 pub opaque type Command {
@@ -66,7 +69,7 @@ external fn convert_bare_msg(Dynamic) -> Result(Message, String) =
 
 /// Start an actor that handles a connection to NATS using
 /// the provided settings.
-pub fn start(settings: Settings) {
+pub fn start(settings: Settings) -> Result(Connection, StartError) {
   // Start actor for NATS connection handling.
   // This just starts Gnat's GenServer module linked to
   // the actor process and translates commands.
@@ -91,27 +94,23 @@ pub fn start(settings: Settings) {
 }
 
 /// Publishes a single message to NATS on a provided subject.
-pub fn publish(conn: Subject(Command), subject: String, message: String) {
-  publish_message(conn, new_message(subject, message))
+pub fn publish(conn: Connection, subject: String, message: String) {
+  publish_message(conn, message.new(subject, message))
 }
 
 /// Publishes a single message to NATS using the data from a provided `Message`
 /// record.
-pub fn publish_message(conn: Subject(Command), message: Message) {
+pub fn publish_message(conn: Connection, message: Message) {
   process.call(conn, Publish(_, message), 10_000)
 }
 
 /// Sends a request and listens for a response synchronously.
-pub fn request(conn: Subject(Command), subject: String, message: String) {
+pub fn request(conn: Connection, subject: String, message: String) {
   process.call(conn, Request(_, subject, message), 10_000)
 }
 
 // Subscribes to a NATS subject.
-pub fn subscribe(
-  conn: Subject(Command),
-  receiver: Subject(Dynamic),
-  subject: String,
-) {
+pub fn subscribe(conn: Connection, receiver: Subject(Dynamic), subject: String) {
   process.call(conn, Subscribe(_, receiver, subject), 10_000)
 }
 

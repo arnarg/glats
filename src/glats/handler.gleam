@@ -4,41 +4,33 @@
 
 import gleam/dynamic.{Dynamic}
 import gleam/result
-import gleam/map.{Map}
+import gleam/map
 import gleam/option.{None, Some}
 import gleam/otp/actor
-import gleam/erlang/process.{Subject}
-import glats/connection.{Command}
+import gleam/erlang/process
+import glats/connection.{Connection}
 import glats/message.{Message}
+import glats/request.{Request}
+import glats/response.{Response}
 
 /// Callback handler that should be provided to handle_subscription to process
 /// the received messages from a subscription.
 pub type MessageHandler =
-  fn(Message, Subject(Command)) -> Result(Nil, String)
+  fn(Message, Connection) -> Result(Nil, String)
 
 /// Callback handler that should be provided to handle_request to process the
 /// the received request and return a response.
 pub type RequestHandler =
-  fn(Request, Subject(Command)) -> Result(Response, String)
-
-/// Request includes headers and body from a request message.
-pub type Request {
-  Request(headers: Map(String, String), body: String)
-}
-
-/// Response includes headers and body for a response to a request.
-pub type Response {
-  Response(headers: Map(String, String), body: String)
-}
+  fn(Request) -> Result(Response, String)
 
 // State for subscription handler.
 type SubscriptionState {
-  SubscriptionState(conn: Subject(Command), handler: MessageHandler)
+  SubscriptionState(conn: Connection, handler: MessageHandler)
 }
 
 // State for a request handler.
 type RequestState {
-  RequestState(conn: Subject(Command), handler: RequestHandler)
+  RequestState(conn: Connection, handler: RequestHandler)
 }
 
 // Externals from Gnat
@@ -49,7 +41,7 @@ external fn convert_msg(Dynamic) -> Result(Message, String) =
 /// Starts an actor that will handle receiving messages from a NATS subject and
 /// call your handler.
 pub fn handle_subscription(
-  conn: Subject(Command),
+  conn: Connection,
   subject: String,
   handler: MessageHandler,
 ) {
@@ -80,7 +72,7 @@ pub fn handle_subscription(
 /// Starts an actor that will handle received requests on a NATS subject and
 /// handle responding to them with what's returned from the provided handler.
 pub fn handle_request(
-  conn: Subject(Command),
+  conn: Connection,
   subject: String,
   handler: RequestHandler,
 ) {
@@ -107,7 +99,7 @@ pub fn handle_request(
 fn request_handler_loop(msg: Message, state: RequestState) {
   case msg.reply_to {
     Some(reply_to) ->
-      case state.handler(Request(msg.headers, msg.body), state.conn) {
+      case state.handler(Request(msg.headers, msg.body)) {
         Ok(response) ->
           case
             connection.publish_message(

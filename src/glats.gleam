@@ -1,56 +1,10 @@
 //// This module provides the most basic NATS client.
-////
-//// ## Example
-////
-//// ```gleam
-//// pub fn main() {
-////   // Connect to localhost:4222
-////   let assert Ok(conn) =
-////     glats.new_settings("localhost", 4222)
-////     |> glats.connect
-////
-////   // Subscribe to subject "some.nats.subject"
-////   let assert Ok(_) = conn
-////     |> glats.handle_subscription("some.nats.subject", handle_message)
-////
-////   // Publish a single message to subject "some.nats.subject"
-////   // with body "Hello worlds!"
-////   let assert Ok(_) = conn
-////     |> glats.publish("some.nats.subject", "Hello world!")
-////
-////   // Sleep for a second to receive the message in the handler
-////   process.sleep(1000)
-//// }
-////
-//// pub fn handle_message(message: glats.Message, conn: process.Subject(glats.Command)) {
-////   io.debug(message)
-////   // Prints `Message("some.nats.subject", //erl(#{}), None, "Hello world!")`
-////
-////   Ok(Nil)
-//// }
-//// ```
 
 import gleam/option.{None, Some}
 import gleam/map
-import gleam/erlang/process.{Subject}
-import glats/connection.{Command, Settings}
-import glats/handler
-import glats/message
-
-pub type MessageHandler =
-  handler.MessageHandler
-
-pub type RequestHandler =
-  handler.RequestHandler
-
-pub type Message =
-  message.Message
-
-pub type Request =
-  handler.Request
-
-pub type Response =
-  handler.Response
+import glats/connection.{Connection, Settings}
+import glats/handler.{MessageHandler, RequestHandler}
+import glats/message.{Message}
 
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
@@ -59,20 +13,20 @@ pub fn connect(settings: Settings) {
 }
 
 /// Publishes a single message to NATS on a provided subject.
-pub fn publish(conn: Subject(Command), subject: String, message: String) {
+pub fn publish(conn: Connection, subject: String, message: String) {
   connection.publish(conn, subject, message)
 }
 
 /// Publishes a single message to NATS using the data from a provided `Message`
 /// record.
-pub fn publish_message(conn: Subject(Command), message: Message) {
+pub fn publish_message(conn: Connection, message: Message) {
   connection.publish_message(conn, message)
 }
 
 /// Sends a request and listens for a response synchronously.
 ///
 /// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
-pub fn request(conn: Subject(Command), subject: String, message: String) {
+pub fn request(conn: Connection, subject: String, message: String) {
   connection.request(conn, subject, message)
 }
 
@@ -88,14 +42,14 @@ pub fn request(conn: Subject(Command), subject: String, message: String) {
 ///   process.sleep_forever()
 /// }
 ///
-/// pub fn sub_handler(message: Message, conn: Subject(Command)) {
+/// pub fn sub_handler(message: Message, conn: Connection) {
 ///   io.debug(message)
 ///
 ///   Ok(Nil)
 /// }
 /// ```
 pub fn handle_subscription(
-  conn: Subject(Command),
+  conn: Connection,
   subject: String,
   handler: MessageHandler,
 ) {
@@ -115,7 +69,7 @@ pub fn handle_subscription(
 ///   process.sleep_forever()
 /// }
 ///
-/// pub fn req_handler(request: Request, conn: Subject(Command)) {
+/// pub fn req_handler(request: Request, conn: Connection) {
 ///   io.debug(request)
 ///
 ///   // Will respond with the same data as the request (ping pong).
@@ -123,7 +77,7 @@ pub fn handle_subscription(
 /// }
 /// ```
 pub fn handle_request(
-  conn: Subject(Command),
+  conn: Connection,
   subject: String,
   handler: RequestHandler,
 ) {
