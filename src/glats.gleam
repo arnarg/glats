@@ -17,6 +17,7 @@ pub type Connection =
   Subject(ConnectionMessage)
 
 /// Errors that can be returned by the server.
+///
 pub type ServerError {
   Timeout
   NoResponders
