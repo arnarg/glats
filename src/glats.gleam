@@ -1,5 +1,3 @@
-//// This module provides the most basic NATS client.
-
 import gleam/io
 import gleam/result
 import gleam/dynamic.{Dynamic}

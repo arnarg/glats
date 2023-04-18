@@ -5,17 +5,64 @@
 
 A NATS client for Gleam. This wraps Elixir's client, [Gnat](https://hex.pm/packages/gnat).
 
-## Quick start
+## Publish
 
-```sh
-gleam run   # Run the project
-gleam test  # Run the tests
-gleam shell # Run an Erlang shell
+```gleam
+import gleam/result
+import glats
+import glats/settings
+
+pub fn main() {
+  use conn <- result.then(
+    settings.new("localhost", 4222)
+    |> glats.connect,
+  )
+
+  // Publish a single message to "some.subject".
+  assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
+
+  Ok(Nil)
+}
+```
+
+## Subscribe
+
+```gleam
+import gleam/io
+import gleam/result
+import gleam/erlang/process
+import glats
+import glats/settings
+
+pub fn main() {
+  use conn <- result.then(
+    settings.new("localhost", 4222)
+    |> glats.connect,
+  )
+
+  let subject = process.new_subject()
+
+  // Subscribe to "some.subject".
+  // Messages will be delivered to the erlang subject passed in.
+  assert Ok(sid) = glats.subscribe(conn, subject, "some.subject")
+
+  // Publish a single message to "some.subject".
+  assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
+
+  // Receive from erlang subject.
+  assert Ok(msg) = process.receive(subject, 1000)
+
+  // Prints: `Message("some.subject", //erl(#{}), None, "hello world!")`.
+  io.debug(msg)
+
+  // Unsubscribe from the subscription.
+  assert Ok(Nil) = glats.unsubscribe(conn, sid)
+
+  Ok(Nil)
+}
 ```
 
 ## Installation
-
-If available on Hex this package can be added to your Gleam project:
 
 ```sh
 gleam add glats
