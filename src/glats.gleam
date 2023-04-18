@@ -30,11 +30,12 @@ pub type ServerError {
 /// Message sent to a NATS connection process.
 pub opaque type ConnectionMessage {
   Subscribe(
-    from: Subject(Result(Nil, String)),
+    from: Subject(Result(Int, String)),
     subscriber: Subject(Message),
     subject: String,
     queue_group: Option(String),
   )
+  Unsubscribe(from: Subject(Result(Nil, String)), sid: Int)
   Publish(from: Subject(Result(Nil, String)), message: Message)
   Request(
     from: Subject(Result(Message, ServerError)),
@@ -43,7 +44,8 @@ pub opaque type ConnectionMessage {
   )
 }
 
-type SubscriptionMessage {
+type SubscriptionActorMessage {
+  GetSid(Subject(Int))
   ReceivedMessage(Message)
   DecodeError(Dynamic)
   SubscriberExited
@@ -53,8 +55,12 @@ type ConnectionState {
   ConnectionState(nats: Pid, self: Subject(ConnectionMessage))
 }
 
-type SubscriptionState {
-  SubscriptionState(conn: Connection, subscriber: Subject(Message))
+type SubscriptionActorState {
+  SubscriptionActorState(
+    conn: Connection,
+    sid: Int,
+    subscriber: Subject(Message),
+  )
 }
 
 // Gnat's GenServer start_link.
@@ -64,7 +70,7 @@ external fn gnat_start_link(
   "Elixir.Gnat" "start_link"
 
 // Gnat's publish function.
-external fn gnat_pub(Pid, String, String, List(#(String, String))) -> Atom =
+external fn gnat_pub(Pid, String, String, List(#(Atom, String))) -> Atom =
   "Elixir.Gnat" "pub"
 
 // Gnat's request function.
@@ -72,7 +78,7 @@ external fn gnat_request(
   Pid,
   String,
   String,
-  List(#(String, String)),
+  List(#(Atom, String)),
 ) -> Result(Dynamic, Atom) =
   "Elixir.Gnat" "request"
 
@@ -82,8 +88,12 @@ external fn gnat_sub(
   Pid,
   String,
   List(#(Atom, String)),
-) -> Result(String, String) =
+) -> Result(Int, String) =
   "Elixir.Gnat" "sub"
+
+// Gnat's unsubscribe function.
+external fn gnat_unsub(Pid, Int, List(#(Atom, String))) -> Atom =
+  "Elixir.Gnat" "unsub"
 
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
@@ -122,6 +132,7 @@ fn handle_command(message: ConnectionMessage, state: ConnectionState) {
     Request(from, subject, msg) -> handle_request(from, subject, msg, state)
     Subscribe(from, subscriber, subject, queue_group) ->
       handle_subscribe(from, subscriber, subject, queue_group, state)
+    Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
     _ -> actor.Continue(state)
   }
 }
@@ -158,6 +169,19 @@ fn handle_request(from, subject, message, state: ConnectionState) {
   actor.Continue(state)
 }
 
+// Handles a single unsubscribe command.
+//
+fn handle_unsubscribe(from, sid, state: ConnectionState) {
+  case
+    gnat_unsub(state.nats, sid, [])
+    |> atom.to_string
+  {
+    "ok" -> process.send(from, Ok(Nil))
+    _ -> process.send(from, Error("unknown unsubscribe error"))
+  }
+  actor.Continue(state)
+}
+
 // Handles a single subscribe command.
 //
 fn handle_subscribe(
@@ -168,7 +192,11 @@ fn handle_subscribe(
   state: ConnectionState,
 ) {
   case start_subscription_actor(subscriber, subject, queue_group, state) {
-    Ok(_) -> process.send(from, Ok(Nil))
+    Ok(actor) ->
+      case process.try_call(actor, GetSid, 1000) {
+        Ok(sid) -> process.send(from, Ok(sid))
+        Error(_) -> process.send(from, Error("subscribe failed"))
+      }
     Error(_) -> process.send(from, Error("subscribe failed"))
   }
 
@@ -189,9 +217,16 @@ fn start_subscription_actor(
 ) {
   actor.start_spec(actor.Spec(
     init: fn() {
-      // TODO: Monitor subscriber process to unsub and exit.
+      // Monitor subscriber process.
+      let monitor =
+        process.monitor_process(
+          subscriber
+          |> process.subject_owner,
+        )
+
       let selector =
         process.new_selector()
+        |> process.selecting_process_down(monitor, fn(_) { SubscriberExited })
         |> process.selecting_record2(
           atom.create_from_string("msg"),
           fn(data) {
@@ -208,8 +243,11 @@ fn start_subscription_actor(
       }
 
       case gnat_sub(state.nats, process.self(), subject, opts) {
-        Ok(_) ->
-          actor.Ready(SubscriptionState(state.self, subscriber), selector)
+        Ok(sid) ->
+          actor.Ready(
+            SubscriptionActorState(state.self, sid, subscriber),
+            selector,
+          )
         Error(err) -> actor.Failed(err)
       }
     },
@@ -218,26 +256,29 @@ fn start_subscription_actor(
   ))
 }
 
-fn subscription_loop(message: SubscriptionMessage, state: SubscriptionState) {
-  let subscriber_alive =
-    state.subscriber
-    |> process.subject_owner
-    |> process.is_alive
-
-  case subscriber_alive {
-    False -> actor.Stop(process.Normal)
-    True ->
-      case message {
-        ReceivedMessage(msg) -> {
-          actor.send(state.subscriber, msg)
-          actor.Continue(state)
-        }
-        DecodeError(data) -> {
-          io.debug(data)
-          actor.Continue(state)
-        }
-        SubscriberExited -> actor.Stop(process.Normal)
-      }
+fn subscription_loop(
+  message: SubscriptionActorMessage,
+  state: SubscriptionActorState,
+) {
+  case message {
+    GetSid(from) -> {
+      actor.send(from, state.sid)
+      actor.Continue(state)
+    }
+    ReceivedMessage(msg) -> {
+      actor.send(state.subscriber, msg)
+      actor.Continue(state)
+    }
+    DecodeError(data) -> {
+      io.debug(data)
+      actor.Continue(state)
+    }
+    SubscriberExited -> {
+      io.println("subscriber exited")
+      // TODO: handle properly
+      unsubscribe(state.conn, state.sid)
+      actor.Stop(process.Normal)
+    }
   }
 }
 
@@ -279,6 +320,12 @@ pub fn subscribe(
   subject: String,
 ) {
   process.call(conn, Subscribe(_, subscriber, subject, None), 5000)
+}
+
+/// Unsubscribe from a subscription by providing the subscription ID.
+///
+pub fn unsubscribe(conn: Connection, sid: Int) {
+  process.call(conn, Unsubscribe(_, sid), 5000)
 }
 
 /// Subscribes to a NATS subject as part of a queue group.
