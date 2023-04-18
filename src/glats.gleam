@@ -11,6 +11,7 @@ import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
 import glats/settings.{Settings}
 import glats/message.{Message}
+import glats/protocol.{ServerInfo}
 import glats/internal/decoder
 
 pub type Connection =
@@ -18,10 +19,10 @@ pub type Connection =
 
 /// Errors that can be returned by the server.
 ///
-pub type ServerError {
+pub type ConnectionError {
   Timeout
   NoResponders
-  Unknown
+  Unexpected
 }
 
 //            //
@@ -39,10 +40,13 @@ pub opaque type ConnectionMessage {
   Unsubscribe(from: Subject(Result(Nil, String)), sid: Int)
   Publish(from: Subject(Result(Nil, String)), message: Message)
   Request(
-    from: Subject(Result(Message, ServerError)),
+    from: Subject(Result(Message, ConnectionError)),
     subject: String,
     message: String,
   )
+  GetServerInfo(from: Subject(Result(ServerInfo, ConnectionError)))
+  GetActiveSubscriptions(from: Subject(Result(Int, ConnectionError)))
+  Exited(process.ExitMessage)
 }
 
 type SubscriptionActorMessage {
@@ -96,6 +100,14 @@ external fn gnat_sub(
 external fn gnat_unsub(Pid, Int, List(#(Atom, String))) -> Atom =
   "Elixir.Gnat" "unsub"
 
+// Gnat's server_info function.
+external fn gnat_server_info(Pid) -> Dynamic =
+  "Elixir.Gnat" "server_info"
+
+// Gnat's active_subscriptions function.
+external fn gnat_active_subscriptions(Pid) -> Result(Int, Dynamic) =
+  "Elixir.Gnat" "active_subscriptions"
+
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
 ///
@@ -105,8 +117,12 @@ pub fn connect(settings: Settings) -> Result(Connection, StartError) {
   // the actor process and translates commands.
   actor.start_spec(actor.Spec(
     init: fn() {
+      process.trap_exits(True)
+
       let subject = process.new_subject()
-      let selector = process.new_selector()
+      let selector =
+        process.new_selector()
+        |> process.selecting_trapped_exits(Exited)
 
       // Start linked process using Gnat's start_link
       case
@@ -129,13 +145,37 @@ pub fn connect(settings: Settings) -> Result(Connection, StartError) {
 //
 fn handle_command(message: ConnectionMessage, state: ConnectionState) {
   case message {
+    Exited(em) -> actor.Stop(em.reason)
     Publish(from, msg) -> handle_publish(from, msg, state)
     Request(from, subject, msg) -> handle_request(from, subject, msg, state)
     Subscribe(from, subscriber, subject, queue_group) ->
       handle_subscribe(from, subscriber, subject, queue_group, state)
     Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
+    GetServerInfo(from) -> handle_server_info(from, state)
+    GetActiveSubscriptions(from) -> handle_active_subscriptions(from, state)
     _ -> actor.Continue(state)
   }
+}
+
+// Handles a single server info command.
+//
+fn handle_server_info(from, state: ConnectionState) {
+  gnat_server_info(state.nats)
+  |> decoder.decode_server_info
+  |> result.map_error(fn(_) { Unexpected })
+  |> process.send(from, _)
+
+  actor.Continue(state)
+}
+
+// Handles a single active subscriptions command.
+//
+fn handle_active_subscriptions(from, state: ConnectionState) {
+  gnat_active_subscriptions(state.nats)
+  |> result.map_error(fn(_) { Unexpected })
+  |> process.send(from, _)
+
+  actor.Continue(state)
 }
 
 // Handles a single publish command.
@@ -157,13 +197,13 @@ fn handle_request(from, subject, message, state: ConnectionState) {
   case gnat_request(state.nats, subject, message, []) {
     Ok(msg) ->
       decoder.decode_msg(msg)
-      |> result.map_error(fn(_) { Unknown })
+      |> result.map_error(fn(_) { Unexpected })
       |> process.send(from, _)
     Error(err) ->
       case atom.to_string(err) {
         "timeout" -> Error(Timeout)
         "no_responders" -> Error(NoResponders)
-        _ -> Error(Unknown)
+        _ -> Error(Unexpected)
       }
       |> process.send(from, _)
   }
@@ -341,6 +381,26 @@ pub fn queue_subscribe(
   group: String,
 ) {
   process.call(conn, Subscribe(_, subscriber, subject, Some(group)), 5000)
+}
+
+//             //
+// Server Info //
+//             //
+
+/// Returns server info provided by the connected NATS server.
+///
+pub fn server_info(conn: Connection) {
+  process.call(conn, GetServerInfo, 5000)
+}
+
+//                      //
+// Active Subscriptions //
+//                      //
+
+/// Returns the number of active subscriptions for the connection.
+///
+pub fn active_subscriptions(conn: Connection) {
+  process.call(conn, GetActiveSubscriptions, 5000)
 }
 
 // Settings mapping helpers to create a map out of the settings
