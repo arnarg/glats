@@ -15,6 +15,10 @@ pub fn main() {
   let assert Ok(_actor) =
     handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
 
+  let assert Ok(_msg) =
+    glats.request(conn, "do.ping", "Hello world", 1000)
+    |> io.debug
+
   process.sleep_forever()
 
   Ok(Nil)

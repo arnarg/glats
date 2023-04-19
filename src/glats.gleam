@@ -38,7 +38,7 @@ pub opaque type ConnectionMessage {
   Unsubscribe(from: Subject(Result(Nil, String)), sid: Int)
   Publish(from: Subject(Result(Nil, String)), message: Message)
   Request(
-    from: Subject(Result(Message, ConnectionError)),
+    from: Subject(fn() -> Result(Message, ConnectionError)),
     subject: String,
     message: String,
     timeout: Int,
@@ -207,19 +207,25 @@ fn handle_request(from, subject, message, timeout, state: ConnectionState) {
   let opts = [
     #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
   ]
-  case gnat_request(state.nats, subject, message, opts) {
-    Ok(msg) ->
-      decoder.decode_msg(msg)
-      |> result.map_error(fn(_) { Unexpected })
-      |> process.send(from, _)
-    Error(err) ->
-      case atom.to_string(err) {
-        "timeout" -> Error(Timeout)
-        "no_responders" -> Error(NoResponders)
-        _ -> Error(Unexpected)
-      }
-      |> process.send(from, _)
+
+  // In order to not block the connection actor we return a function
+  // that will make the request.
+  let req_func = fn() {
+    case gnat_request(state.nats, subject, message, opts) {
+      Ok(msg) ->
+        decoder.decode_msg(msg)
+        |> result.map_error(fn(_) { Unexpected })
+      Error(err) ->
+        case atom.to_string(err) {
+          "timeout" -> Error(Timeout)
+          "no_responders" -> Error(NoResponders)
+          _ -> Error(Unexpected)
+        }
+    }
   }
+
+  process.send(from, req_func)
+
   actor.Continue(state)
 }
 
@@ -370,10 +376,15 @@ pub fn publish_message(conn: Connection, message: Message) {
 /// To handle a request from NATS see `handler.handle_request`.
 ///
 pub fn request(conn: Connection, subject: String, message: String, timeout: Int) {
-  // The timeout gets passed all the way to Gnat that will return a timeout error
-  // if it passes, therefor I'll give the `process.call` 1 more second to wait
-  // before panicing.
-  process.call(conn, Request(_, subject, message, timeout), timeout + 1000)
+  // Because Gnat's request function is blocking the connection actor will return
+  // a function with all the data set in a clojure that calls the function.
+  // This is done in order to not block the entire connection actor when waiting
+  // for a response.
+  let make_request =
+    process.call(conn, Request(_, subject, message, timeout), 1000)
+
+  // Call the request function returned by the connection actor.
+  make_request()
 }
 
 //           //
