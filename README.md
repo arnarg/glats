@@ -69,6 +69,57 @@ pub fn main() {
 }
 ```
 
+## Request handler
+
+```gleam
+import gleam/option.{None}
+import gleam/result
+import gleam/erlang/process
+import glats
+import glats/settings
+import glats/handler.{Reply, Request, Response}
+
+pub fn main() {
+  use conn <- result.then(
+    settings.new("localhost", 4222)
+    |> glats.connect,
+  )
+
+  // Start a request handler actor that will call `ping_pong_handler` for
+  // every request received from NATS subject "do.ping".
+  assert Ok(_actor) =
+    handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
+
+  process.sleep_forever()
+
+  Ok(Nil)
+}
+
+pub fn ping_pong_handler(req: Request, state) {
+  // Got message: Hello
+  io.println("Got message: " <> req.body)
+
+  // Reply with a message with the same headers and append to body.
+  Reply(
+    Response(
+      headers: req.headers,
+      reply_to: None,
+      body: req.body <> " from glats!",
+    ),
+    state,
+  )
+}
+```
+
+Then in shell with `natscli`.
+
+```sh
+$ nats req do.ping 'Hello'
+12:16:47 Sending request on "do.ping"
+12:16:47 Received with rtt 427.64µs
+Hello from glats!
+```
+
 ## Installation
 
 ```sh

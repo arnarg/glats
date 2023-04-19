@@ -131,6 +131,7 @@ pub fn connect(settings: Settings) -> Result(Connection, StartError) {
       let selector =
         process.new_selector()
         |> process.selecting_trapped_exits(Exited)
+        |> process.selecting(subject, fn(msg) { msg })
 
       // Start linked process using Gnat's start_link
       case
@@ -365,6 +366,8 @@ pub fn publish_message(conn: Connection, message: Message) {
 /// Sends a request and listens for a response synchronously.
 ///
 /// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
+///
+/// To handle a request from NATS see `handler.handle_request`.
 ///
 pub fn request(conn: Connection, subject: String, message: String, timeout: Int) {
   // The timeout gets passed all the way to Gnat that will return a timeout error
