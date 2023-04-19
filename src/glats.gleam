@@ -31,7 +31,7 @@ pub type ConnectionError {
 pub opaque type ConnectionMessage {
   Subscribe(
     from: Subject(Result(Int, String)),
-    subscriber: Subject(Message),
+    subscriber: Subject(SubscriptionMessage),
     subject: String,
     queue_group: Option(String),
   )
@@ -41,15 +41,25 @@ pub opaque type ConnectionMessage {
     from: Subject(Result(Message, ConnectionError)),
     subject: String,
     message: String,
+    timeout: Int,
   )
   GetServerInfo(from: Subject(Result(ServerInfo, ConnectionError)))
   GetActiveSubscriptions(from: Subject(Result(Int, ConnectionError)))
   Exited(process.ExitMessage)
 }
 
+/// Message received by a subscribing subject.
+///
+pub type SubscriptionMessage {
+  ReceivedMessage(conn: Connection, sid: Int, message: Message)
+}
+
+// This message type is for the interim translating actor that receives
+// messages from Gnat, decodes them into Gleam native `Message` and
+// passes that onto the actual subscriber.
 type SubscriptionActorMessage {
   GetSid(Subject(Int))
-  ReceivedMessage(Message)
+  IncomingMessage(Int, Message)
   DecodeError(Dynamic)
   SubscriberExited
 }
@@ -62,7 +72,7 @@ type SubscriptionActorState {
   SubscriptionActorState(
     conn: Connection,
     sid: Int,
-    subscriber: Subject(Message),
+    subscriber: Subject(SubscriptionMessage),
   )
 }
 
@@ -81,7 +91,7 @@ external fn gnat_request(
   Pid,
   String,
   String,
-  List(#(Atom, String)),
+  List(#(Atom, Dynamic)),
 ) -> Result(Dynamic, Atom) =
   "Elixir.Gnat" "request"
 
@@ -145,7 +155,8 @@ fn handle_command(message: ConnectionMessage, state: ConnectionState) {
   case message {
     Exited(em) -> actor.Stop(em.reason)
     Publish(from, msg) -> handle_publish(from, msg, state)
-    Request(from, subject, msg) -> handle_request(from, subject, msg, state)
+    Request(from, subject, msg, timeout) ->
+      handle_request(from, subject, msg, timeout, state)
     Subscribe(from, subscriber, subject, queue_group) ->
       handle_subscribe(from, subscriber, subject, queue_group, state)
     Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
@@ -191,8 +202,11 @@ fn handle_publish(from, message: Message, state: ConnectionState) {
 
 // Handles a single request command.
 //
-fn handle_request(from, subject, message, state: ConnectionState) {
-  case gnat_request(state.nats, subject, message, []) {
+fn handle_request(from, subject, message, timeout, state: ConnectionState) {
+  let opts = [
+    #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
+  ]
+  case gnat_request(state.nats, subject, message, opts) {
     Ok(msg) ->
       decoder.decode_msg(msg)
       |> result.map_error(fn(_) { Unexpected })
@@ -268,12 +282,7 @@ fn start_subscription_actor(
         |> process.selecting_process_down(monitor, fn(_) { SubscriberExited })
         |> process.selecting_record2(
           atom.create_from_string("msg"),
-          fn(data) {
-            data
-            |> decoder.decode_msg
-            |> result.map(ReceivedMessage)
-            |> result.unwrap(DecodeError(data))
-          },
+          map_gnat_message,
         )
 
       let opts = case queue_group {
@@ -295,6 +304,21 @@ fn start_subscription_actor(
   ))
 }
 
+fn map_gnat_message(data: Dynamic) -> SubscriptionActorMessage {
+  let sid_ =
+    data
+    |> dynamic.field(atom.create_from_string("sid"), dynamic.int)
+
+  case sid_ {
+    Ok(sid) ->
+      data
+      |> decoder.decode_msg
+      |> result.map(IncomingMessage(sid, _))
+      |> result.unwrap(DecodeError(data))
+    Error(_) -> DecodeError(data)
+  }
+}
+
 fn subscription_loop(
   message: SubscriptionActorMessage,
   state: SubscriptionActorState,
@@ -304,8 +328,8 @@ fn subscription_loop(
       actor.send(from, state.sid)
       actor.Continue(state)
     }
-    ReceivedMessage(msg) -> {
-      actor.send(state.subscriber, msg)
+    IncomingMessage(sid, msg) -> {
+      actor.send(state.subscriber, ReceivedMessage(state.conn, sid, msg))
       actor.Continue(state)
     }
     DecodeError(data) -> {
@@ -342,8 +366,11 @@ pub fn publish_message(conn: Connection, message: Message) {
 ///
 /// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
 ///
-pub fn request(conn: Connection, subject: String, message: String) {
-  process.call(conn, Request(_, subject, message), 5000)
+pub fn request(conn: Connection, subject: String, message: String, timeout: Int) {
+  // The timeout gets passed all the way to Gnat that will return a timeout error
+  // if it passes, therefor I'll give the `process.call` 1 more second to wait
+  // before panicing.
+  process.call(conn, Request(_, subject, message, timeout), timeout + 1000)
 }
 
 //           //
@@ -355,7 +382,7 @@ pub fn request(conn: Connection, subject: String, message: String) {
 ///
 pub fn subscribe(
   conn: Connection,
-  subscriber: Subject(Message),
+  subscriber: Subject(SubscriptionMessage),
   subject: String,
 ) {
   process.call(conn, Subscribe(_, subscriber, subject, None), 5000)
@@ -374,7 +401,7 @@ pub fn unsubscribe(conn: Connection, sid: Int) {
 ///
 pub fn queue_subscribe(
   conn: Connection,
-  subscriber: Subject(Message),
+  subscriber: Subject(SubscriptionMessage),
   subject: String,
   group: String,
 ) {

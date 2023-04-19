@@ -33,6 +33,7 @@ import gleam/result
 import gleam/erlang/process
 import glats
 import glats/settings
+import glats/message
 
 pub fn main() {
   use conn <- result.then(
@@ -50,10 +51,16 @@ pub fn main() {
   assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
 
   // Receive from erlang subject.
-  assert Ok(msg) = process.receive(subject, 1000)
-
-  // Prints: `Message("some.subject", //erl(#{}), None, "hello world!")`.
-  io.debug(msg)
+  assert Ok(glats.ReceivedMessage(
+    conn: _conn, // Reference to the conn used
+    sid: _sid,   // Subscription ID for the subscription
+    message: message.Message(
+      subject: _subject,   // "some.subject"
+      headers: _headers,   // empty map
+      reply_to: _reply_to, // None
+      body: _body,         // "hello world!"
+    )
+  )) = process.receive(subject, 1000)
 
   // Unsubscribe from the subscription.
   assert Ok(Nil) = glats.unsubscribe(conn, sid)
