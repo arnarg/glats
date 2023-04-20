@@ -263,6 +263,10 @@ fn handle_subscribe(
   actor.Continue(state)
 }
 
+//                    //
+// Subscription Actor //
+//                    //
+
 // Since Gnat will send messages from Elixir we need to translate it
 // to a type in Gleam _before_ passing it to the user.
 // This is done by starting a new actor that will receive the messages
@@ -292,6 +296,8 @@ fn start_subscription_actor(
           map_gnat_message,
         )
 
+      // If a queue group was provided we should pass the option
+      // to gnat_sup.
       let opts = case queue_group {
         Some(group) -> [#(atom.create_from_string("queue_group"), group)]
         None -> []
