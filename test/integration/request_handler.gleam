@@ -15,9 +15,9 @@ pub fn main() {
   let assert Ok(_actor) =
     handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
 
-  let assert Ok(_msg) =
-    glats.request(conn, "do.ping", "Hello world", 1000)
-    |> io.debug
+  let assert Ok(reply) = glats.request(conn, "do.ping", "Hello world", 1000)
+
+  io.println("Got reply: " <> reply.body)
 
   process.sleep_forever()
 
@@ -25,7 +25,7 @@ pub fn main() {
 }
 
 pub fn ping_pong_handler(req: Request, state) {
-  io.println("Got message: " <> req.body)
+  io.println("Got request: " <> req.body)
 
   // Reply with a message with the same headers and body.
   Reply(
