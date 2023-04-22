@@ -78,7 +78,7 @@ type SubscriptionActorState {
 
 // Gnat's GenServer start_link.
 external fn gnat_start_link(
-  settings: Map(String, Dynamic),
+  settings: Map(Atom, Dynamic),
 ) -> actor.ErlangStartResult =
   "Elixir.Gnat" "start_link"
 
@@ -460,7 +460,7 @@ fn build_settings(settings: Settings) {
   |> map.from_list
 }
 
-fn take_host(old: List(#(String, Dynamic)), settings: Settings) {
+fn take_host(old: List(#(Atom, Dynamic)), settings: Settings) {
   case settings.host {
     Some(host) ->
       old
@@ -469,7 +469,7 @@ fn take_host(old: List(#(String, Dynamic)), settings: Settings) {
   }
 }
 
-fn take_port(old: List(#(String, Dynamic)), settings: Settings) {
+fn take_port(old: List(#(Atom, Dynamic)), settings: Settings) {
   case settings.port {
     Some(port) ->
       old
@@ -478,7 +478,7 @@ fn take_port(old: List(#(String, Dynamic)), settings: Settings) {
   }
 }
 
-fn take_tls(old: List(#(String, Dynamic)), settings: Settings) {
+fn take_tls(old: List(#(Atom, Dynamic)), settings: Settings) {
   case settings.tls {
     Some(tls) ->
       old
@@ -487,16 +487,23 @@ fn take_tls(old: List(#(String, Dynamic)), settings: Settings) {
   }
 }
 
-fn take_ssl_opts(old: List(#(String, Dynamic)), settings: Settings) {
+fn take_ssl_opts(old: List(#(Atom, Dynamic)), settings: Settings) {
   case settings.ssl_opts {
     Some(ssl_opts) ->
       old
-      |> add_opt_to_list("ssl_opts", ssl_opts)
+      |> add_opt_to_list(
+        "ssl_opts",
+        ssl_opts
+        |> map.to_list
+        |> list.map(fn(item) {
+          #(atom.create_from_string(item.0), dynamic.from(item.1))
+        }),
+      )
     None -> old
   }
 }
 
-fn add_opt_to_list(old: List(#(String, Dynamic)), key: String, value) {
+fn add_opt_to_list(old: List(#(Atom, Dynamic)), key: String, value) {
   old
-  |> list.append([#(key, dynamic.from(value))])
+  |> list.append([#(atom.create_from_string(key), dynamic.from(value))])
 }
