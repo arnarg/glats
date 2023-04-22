@@ -1,7 +1,7 @@
 defmodule Glats.Jetstream do
   # Catches stream info when there's an error.
-  def decode_info_data(%{"error" => %{"err_code" => 10059}}) do
-    {:error, :stream_not_found}
+  def decode_info_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
   end
   # Decodes stream info.
   def decode_info_data(%{"created" => created, "config" => config, "state" => state}) do
@@ -18,23 +18,23 @@ defmodule Glats.Jetstream do
     {:stream_config,
       Map.get(config, "name"),
       Map.get(config, "subjects"),
-      Map.get(config, "retention"),
-      Map.get(config, "max_consumers"),
-      Map.get(config, "max_msgs"),
-      Map.get(config, "max_bytes"),
-      Map.get(config, "max_age"),
-      Map.get(config, "max_msgs_per_subject"),
-      Map.get(config, "max_msg_size"),
-      Map.get(config, "discard"),
-      Map.get(config, "storage"),
-      Map.get(config, "num_replicas"),
-      Map.get(config, "duplicate_window"),
-      Map.get(config, "allow_direct"),
-      Map.get(config, "mirror_direct"),
-      Map.get(config, "sealed"),
-      Map.get(config, "deny_delete"),
-      Map.get(config, "deny_purge"),
-      Map.get(config, "allow_rollup_hdrs"),
+      optional(Map.get(config, "retention")),
+      optional(Map.get(config, "max_consumers")),
+      optional(Map.get(config, "max_msgs")),
+      optional(Map.get(config, "max_bytes")),
+      optional(Map.get(config, "max_age")),
+      optional(Map.get(config, "max_msgs_per_subject")),
+      optional(Map.get(config, "max_msg_size")),
+      optional(Map.get(config, "discard")),
+      optional(Map.get(config, "storage")),
+      optional(Map.get(config, "num_replicas")),
+      optional(Map.get(config, "duplicate_window")),
+      optional(Map.get(config, "allow_direct")),
+      optional(Map.get(config, "mirror_direct")),
+      optional(Map.get(config, "sealed")),
+      optional(Map.get(config, "deny_delete")),
+      optional(Map.get(config, "deny_purge")),
+      optional(Map.get(config, "allow_rollup_hdrs")),
     }
   end
   # Decodes stream state.
@@ -49,4 +49,34 @@ defmodule Glats.Jetstream do
       Map.get(state, "consumer_count"),
     }
   end
+
+  # Catches stream deletion when there's an error.
+  def decode_delete_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decodes a stream deletion response.
+  def decode_delete_data(%{"success" => true}) do
+    {:ok, nil}
+  end
+
+  # Decode a raw message from stream when error.
+  def decode_raw_stream_message_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decode a raw message from stream.
+  def decode_raw_stream_message_data(%{"message" => message}) do
+    {:ok,
+      {:raw_stream_message,
+        Map.get(message, "subject"),
+        Map.get(message, "seq"),
+        optional(Map.get(message, "hdrs")),
+        Map.get(message, "data"),
+        Map.get(message, "time"),
+      }
+    }
+  end
+
+  # Returns Some(val) or None depending on nil or not.
+  def optional(nil) do :none end
+  def optional(val) do {:some, val} end
 end
