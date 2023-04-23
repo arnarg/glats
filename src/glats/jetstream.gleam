@@ -7,10 +7,14 @@ pub type JetstreamError {
   JetstreamNotEnabled(String)
   // code: 10023
   InsufficientResources(String)
+  // code: 10052
+  InvalidStreamConfig(String)
   // code: 10058
   StreamNameInUse(String)
   // code: 10059
   StreamNotFound(String)
+  // code: 10110
+  StreamPurgeNotAllowed(String)
   // code: 10037
   NoMessageFound(String)
   // code: 10014
@@ -36,4 +40,9 @@ pub type RetentionPolicy {
   LimitsPolicy
   InterestPolicy
   WorkQueuePolicy
+}
+
+pub type DiscardPolicy {
+  DiscardOld
+  DiscardNew
 }

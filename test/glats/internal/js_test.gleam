@@ -4,15 +4,15 @@ import glats/internal/js
 
 pub fn stream_not_found_test() {
   js.map_code_to_error(#(10_059, "stream not found"))
-  |> should.equal(jetstream.StreamNotFound)
+  |> should.equal(jetstream.StreamNotFound("stream not found"))
 }
 
 pub fn consumer_not_found_test() {
   js.map_code_to_error(#(10_014, "consumer not found"))
-  |> should.equal(jetstream.ConsumerNotFound)
+  |> should.equal(jetstream.ConsumerNotFound("consumer not found"))
 }
 
 pub fn unknown_error_test() {
   js.map_code_to_error(#(0, "unknown error"))
-  |> should.equal(jetstream.Unknown(code: 0, description: "unknown error"))
+  |> should.equal(jetstream.Unknown(0, "unknown error"))
 }

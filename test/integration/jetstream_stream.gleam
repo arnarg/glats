@@ -3,8 +3,8 @@ import gleam/int
 import gleam/result
 import glats
 import glats/settings
-import glats/jetstream
-import glats/jetstream/stream
+import glats/jetstream.{MemoryStorage, WorkQueuePolicy}
+import glats/jetstream/stream.{Retention, Storage}
 
 pub fn main() {
   use conn <- result.then(
@@ -13,10 +13,12 @@ pub fn main() {
   )
 
   let assert Ok(created) =
-    stream.new_config("my_stream", ["orders.>", "items.>"])
-    |> stream.with_storage(jetstream.MemoryStorage)
-    |> stream.with_retention(jetstream.WorkQueuePolicy)
-    |> stream.create(conn, _)
+    stream.create(
+      conn,
+      "mystream",
+      ["orders.>", "items.>"],
+      [Storage(MemoryStorage), Retention(WorkQueuePolicy)],
+    )
 
   let assert Ok(info) = stream.info(conn, created.config.name)
 
@@ -33,11 +35,11 @@ pub fn main() {
     |> io.debug
 
   let assert Ok(_) =
-    stream.get_message(conn, info.config.name, stream.BySubject("orders.>"))
+    stream.get_message(conn, info.config.name, stream.LastBySubject("orders.>"))
     |> io.debug
 
   let assert Ok(_) =
-    stream.get_message(conn, info.config.name, stream.BySequence(1))
+    stream.get_message(conn, info.config.name, stream.SequenceID(1))
     |> io.debug
 
   let assert Ok(Nil) =

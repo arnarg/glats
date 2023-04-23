@@ -59,6 +59,15 @@ defmodule Glats.Jetstream do
     {:ok, nil}
   end
 
+  # Catches stream purge when there's an error.
+  def decode_purge_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decodes a stream purge response.
+  def decode_purge_data(%{"success" => true, "purged" => count}) do
+    {:ok, count}
+  end
+
   # Decode a raw message from stream when error.
   def decode_raw_stream_message_data(%{"error" => %{"err_code" => code, "description" => description}}) do
     {:error, {code, description}}

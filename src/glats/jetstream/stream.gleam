@@ -1,17 +1,79 @@
 import gleam/base
 import gleam/bit_string
 import gleam/dynamic.{Dynamic}
-import gleam/option.{None, Option, Some}
+import gleam/option.{None, Option}
 import gleam/list
 import gleam/map.{Map}
 import gleam/result
-import gleam/json
+import gleam/json.{Json}
 import glats.{Connection}
 import glats/message.{Message}
-import glats/jetstream.{JetstreamError}
+import glats/jetstream.{
+  DiscardPolicy, JetstreamError, RetentionPolicy, StorageType,
+}
 import glats/internal/js
 
 const stream_prefix = "$JS.API.STREAM"
+
+/// Available options to set during stream creation and update.
+///
+pub type StreamOption {
+  /// A verbose description of the stream.
+  Description(String)
+  /// Declares the retention policy for the stream.
+  ///
+  /// See: https://docs.nats.io/nats-concepts/jetstream/streams#retentionpolicy
+  Retention(RetentionPolicy)
+  /// How many Consumers can be defined for a given Stream,
+  /// -1 for unlimited.
+  MaxConsumers(Int)
+  /// How many messages may be in a Stream. Adheres to Discard
+  /// Policy, removing oldest or refusing new messages if the
+  /// Stream exceeds this number of messages.
+  MaxMessages(Int)
+  /// How many bytes the Stream may contain. Adheres to
+  /// Discard Policy, removing oldest or refusing new messages
+  /// if the Stream exceeds this size
+  MaxBytes(Int)
+  /// Maximum age of any message in the Stream, expressed
+  /// in nanoseconds.
+  MaxAge(Int)
+  /// Limits how many messages in the stream to retain per subject.
+  MaxMessagesPerSubject(Int)
+  /// The largest message that will be accepted by the Stream
+  MaxMessageSize(Int)
+  /// The behavior of discarding messages when any streams'
+  /// limits have been reached.
+  ///
+  /// See: https://docs.nats.io/nats-concepts/jetstream/streams#discardpolicy
+  Discard(DiscardPolicy)
+  /// The storage type for stream data.
+  Storage(StorageType)
+  /// How many replicas to keep for each message in a
+  /// clustered JetStream, maximum 5.
+  NumReplicas(Int)
+  /// The window within which to track duplicate messages,
+  /// expressed in nanoseconds.
+  DuplicateWindow(Int)
+  /// If true, and the stream has more than one replica, each
+  /// replica will respond to direct get requests for individual
+  /// messages, not only the leader.
+  AllowDirect(Bool)
+  /// If true, and the stream is a mirror, the mirror will
+  /// participate in a serving direct get requests for individual
+  /// messages from origin stream.
+  MirrorDirect(Bool)
+  /// Restricts the ability to delete messages from a stream
+  /// via the API.
+  DenyDelete(Bool)
+  /// Restricts the ability to purge messages from a stream
+  /// via the API.
+  DenyPurge(Bool)
+  /// Allows the use of the Nats-Rollup header to replace all
+  /// contents of a stream, or subject in a stream, with a
+  /// single new message.
+  AllowRollup(Bool)
+}
 
 /// Info about stream returned from `info` function.
 ///
@@ -77,7 +139,7 @@ pub fn info(
 
   case glats.request(conn, subject, "", 1000) {
     Ok(msg) -> decode_info(msg.body)
-    Error(_) -> Error(jetstream.StreamNotFound)
+    Error(_) -> Error(jetstream.StreamNotFound(""))
   }
 }
 
@@ -105,14 +167,56 @@ fn decode_info(body: String) {
 /// Calling this when a stream by the same already exists will run successfully
 /// when no mutable field in the config is different.
 ///
-pub fn create(conn: Connection, stream: StreamConfig) {
-  let subject = stream_prefix <> ".CREATE." <> stream.name
-  let body = config_to_json(stream)
+/// ## Example
+///
+/// ```gleam
+/// create(
+///   conn,
+///   "samplestream",
+///   ["sample.subject.>"],
+///   [
+///     Storage(MemoryStorage),
+///     Retention(WorkQueuePolicy),
+///   ],
+/// )
+/// ```
+pub fn create(
+  conn: Connection,
+  name: String,
+  subjects: List(String),
+  opts: List(StreamOption),
+) {
+  let subject = stream_prefix <> ".CREATE." <> name
+  let body =
+    [
+      #("name", json.string(name)),
+      #("subjects", json.array(subjects, of: json.string)),
+    ]
+    |> stream_options_to_json(opts)
 
   case glats.request(conn, subject, body, 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: use actual descriptive error
-    Error(_) -> Error(jetstream.StreamNotFound)
+    Error(_) -> Error(jetstream.StreamNotFound(""))
+  }
+}
+
+//               //
+// Update Stream //
+//               //
+
+/// Updates the config of a stream.
+///
+pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
+  let subject = stream_prefix <> ".UPDATE." <> name
+  let body =
+    [#("name", json.string(name))]
+    |> stream_options_to_json(opts)
+
+  case glats.request(conn, subject, body, 1000) {
+    Ok(msg) -> decode_info(msg.body)
+    // TODO: use actual descriptive error
+    Error(_) -> Error(jetstream.StreamNotFound(""))
   }
 }
 
@@ -128,7 +232,7 @@ pub fn delete(conn: Connection, name: String) {
   case glats.request(conn, subject, "", 1000) {
     Ok(msg) -> decode_delete(msg.body)
     // TODO: use actual descriptive error
-    Error(_) -> Error(jetstream.StreamNotFound)
+    Error(_) -> Error(jetstream.StreamNotFound(""))
   }
 }
 
@@ -147,17 +251,53 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
   |> result.map_error(js.map_code_to_error)
 }
 
+//              //
+// Purge Stream //
+//              //
+
+/// Purges all of the data in a Stream, leaves the Stream.
+///
+pub fn purge(conn: Connection, name: String) {
+  let subject = stream_prefix <> ".PURGE." <> name
+
+  case glats.request(conn, subject, "", 1000) {
+    Ok(msg) -> decode_purge(msg.body)
+    // TODO: use actual descriptive error
+    Error(_) -> Error(jetstream.StreamNotFound(""))
+  }
+}
+
+external fn decode_purge_data(
+  data: Map(String, Dynamic),
+) -> Result(Int, #(Int, String)) =
+  "Elixir.Glats.Jetstream" "decode_purge_data"
+
+fn decode_purge(body: String) -> Result(Int, JetstreamError) {
+  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+
+  json.decode(body, decoder)
+  |> result.map(decode_purge_data)
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
+}
+
 //             //
 // Get Message //
 //             //
 
 /// Access method type for a get message request to Jetstream.
 ///
-/// See `get_message".
-///`
+/// See `get_message`.
+///
 pub type AccessMethod {
-  BySequence(Int)
-  BySubject(String)
+  /// Used to get a message from a stream by sequence ID.
+  ///
+  SequenceID(Int)
+  /// Used to get newest message from a stream that matches
+  /// a subject.
+  ///
+  LastBySubject(String)
 }
 
 type RawStreamMessage {
@@ -176,8 +316,8 @@ external fn decode_raw_stream_message_data(
   "Elixir.Glats.Jetstream" "decode_raw_stream_message_data"
 
 /// Directly fetches a message from a stream either by sequence ID
-/// (by passing `BySequence(Int)`) or by subject (by passing
-/// `BySubject(String)`).
+/// (by passing `SequenceID(Int)`) or by subject (by passing
+/// `LastBySubject(String)`).
 ///
 /// A subject can have wildcards (e.g. `orders.*.item.>`), please
 /// refer to [Subject-Based messaging docs](https://docs.nats.io/nats-concepts/subjects)
@@ -206,8 +346,8 @@ pub fn get_message(conn: Connection, stream: String, method: AccessMethod) {
 //
 fn encode_get_message_body(method: AccessMethod) -> String {
   case method {
-    BySequence(seq) -> [#("seq", json.int(seq))]
-    BySubject(subj) -> [#("last_by_subj", json.string(subj))]
+    SequenceID(seq) -> [#("seq", json.int(seq))]
+    LastBySubject(subj) -> [#("last_by_subj", json.string(subj))]
   }
   |> json.object
   |> json.to_string
@@ -247,165 +387,75 @@ fn raw_to_stream_message(msg: RawStreamMessage) {
   ))
 }
 
-//               //
-// Stream Config //
-//               //
+//                                //
+// Stream config building helpers //
+//                                //
 
-/// Creates a new stream config from name and subject list.
-///
-pub fn new_config(name: String, subjects: List(String)) {
-  StreamConfig(
-    name: name,
-    subjects: subjects,
-    retention: None,
-    max_consumers: None,
-    max_msgs: None,
-    max_bytes: None,
-    max_age: None,
-    max_msgs_per_subject: None,
-    max_msg_size: None,
-    discard: None,
-    storage: None,
-    num_replicas: None,
-    duplicate_window: None,
-    allow_direct: None,
-    mirror_direct: None,
-    sealed: None,
-    deny_delete: None,
-    deny_purge: None,
-    allow_rollup_hdrs: None,
-  )
+fn stream_options_to_json(prev: List(#(String, Json)), opts: List(StreamOption)) {
+  prev
+  |> apply_stream_options(opts)
+  |> json.object
+  |> json.to_string
 }
 
-/// Sets the storage type in a stream config.
-///
-pub fn with_storage(config: StreamConfig, storage: jetstream.StorageType) {
-  let st = case storage {
-    jetstream.FileStorage -> "file"
-    jetstream.MemoryStorage -> "memory"
+fn apply_stream_options(prev: List(#(String, Json)), opts: List(StreamOption)) {
+  list.fold(opts, prev, apply_stream_option)
+}
+
+fn apply_stream_option(prev: List(#(String, Json)), opt: StreamOption) {
+  let pair = case opt {
+    Description(desc) -> #("description", json.string(desc))
+    Retention(pol) -> #(
+      "retention",
+      ret_pol_to_string(pol)
+      |> json.string,
+    )
+    Discard(pol) -> #(
+      "discard",
+      dis_pol_to_string(pol)
+      |> json.string,
+    )
+    Storage(storage) -> #(
+      "storage",
+      storage_to_string(storage)
+      |> json.string,
+    )
+    MaxConsumers(num) -> #("max_consumers", json.int(num))
+    MaxMessages(num) -> #("max_msgs", json.int(num))
+    MaxBytes(num) -> #("max_bytes", json.int(num))
+    MaxAge(num) -> #("max_age", json.int(num))
+    MaxMessagesPerSubject(num) -> #("max_msgs_per_subject", json.int(num))
+    MaxMessageSize(num) -> #("max_msg_size", json.int(num))
+    NumReplicas(num) -> #("num_replicas", json.int(num))
+    DuplicateWindow(num) -> #("duplicate_window", json.int(num))
+    AllowDirect(val) -> #("allow_direct", json.bool(val))
+    MirrorDirect(val) -> #("mirror_direct", json.bool(val))
+    DenyDelete(val) -> #("deny_delete", json.bool(val))
+    DenyPurge(val) -> #("deny_purge", json.bool(val))
+    AllowRollup(val) -> #("allow_rollup_hdrs", json.bool(val))
   }
 
-  StreamConfig(..config, storage: Some(st))
+  list.prepend(prev, pair)
 }
 
-/// Sets the retention policy in a stream config.
-///
-pub fn with_retention(
-  config: StreamConfig,
-  retention: jetstream.RetentionPolicy,
-) {
-  let rp = case retention {
+fn ret_pol_to_string(pol: RetentionPolicy) {
+  case pol {
     jetstream.LimitsPolicy -> "limits"
     jetstream.InterestPolicy -> "interest"
     jetstream.WorkQueuePolicy -> "workqueue"
   }
-
-  StreamConfig(..config, retention: Some(rp))
 }
 
-/// Sets the number of max consumers in a stream config.
-///
-pub fn with_max_consumers(config: StreamConfig, max_consumers: Int) {
-  StreamConfig(..config, max_consumers: Some(max_consumers))
+fn dis_pol_to_string(pol: DiscardPolicy) {
+  case pol {
+    jetstream.DiscardOld -> "old"
+    jetstream.DiscardNew -> "new"
+  }
 }
 
-pub fn config_to_json(config: StreamConfig) -> String {
-  // Start by putting all optionals in a list of tuples.
-  [
-    #(
-      "retention",
-      config.retention
-      |> option.map(json.string),
-    ),
-    #(
-      "max_consumers",
-      config.max_consumers
-      |> option.map(json.int),
-    ),
-    #(
-      "max_msgs",
-      config.max_msgs
-      |> option.map(json.int),
-    ),
-    #(
-      "max_bytes",
-      config.max_bytes
-      |> option.map(json.int),
-    ),
-    #(
-      "max_age",
-      config.max_age
-      |> option.map(json.int),
-    ),
-    #(
-      "max_msgs_per_subject",
-      config.max_msgs_per_subject
-      |> option.map(json.int),
-    ),
-    #(
-      "max_msg_size",
-      config.max_msg_size
-      |> option.map(json.int),
-    ),
-    #(
-      "discard",
-      config.discard
-      |> option.map(json.string),
-    ),
-    #(
-      "storage",
-      config.storage
-      |> option.map(json.string),
-    ),
-    #(
-      "num_replicas",
-      config.num_replicas
-      |> option.map(json.int),
-    ),
-    #(
-      "duplicate_window",
-      config.duplicate_window
-      |> option.map(json.int),
-    ),
-    #(
-      "allow_direct",
-      config.allow_direct
-      |> option.map(json.bool),
-    ),
-    #(
-      "mirror_direct",
-      config.mirror_direct
-      |> option.map(json.bool),
-    ),
-    #(
-      "sealed",
-      config.sealed
-      |> option.map(json.bool),
-    ),
-    #(
-      "deny_delete",
-      config.deny_delete
-      |> option.map(json.bool),
-    ),
-    #(
-      "deny_purge",
-      config.deny_purge
-      |> option.map(json.bool),
-    ),
-    #(
-      "allow_rollup_hdrs",
-      config.allow_rollup_hdrs
-      |> option.map(json.bool),
-    ),
-  ]
-  |> list.filter_map(fn(item) {
-    case item.1 {
-      Some(val) -> Ok(#(item.0, val))
-      None -> Error(item)
-    }
-  })
-  |> list.prepend(#("subjects", json.array(config.subjects, json.string)))
-  |> list.prepend(#("name", json.string(config.name)))
-  |> json.object
-  |> json.to_string
+fn storage_to_string(storage: StorageType) {
+  case storage {
+    jetstream.FileStorage -> "file"
+    jetstream.MemoryStorage -> "memory"
+  }
 }
