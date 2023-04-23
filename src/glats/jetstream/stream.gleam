@@ -1,7 +1,7 @@
 import gleam/base
 import gleam/bit_string
 import gleam/dynamic.{Dynamic}
-import gleam/option.{None, Option}
+import gleam/option.{None, Option, Some}
 import gleam/list
 import gleam/map.{Map}
 import gleam/result
@@ -373,13 +373,19 @@ fn raw_to_stream_message(msg: RawStreamMessage) {
     |> result.map(bit_string.to_string),
   )
 
-  // TODO: decode headers
+  let hdrs = case msg.hdrs {
+    Some(data) ->
+      js.decode_b64_headers(data)
+      |> result.unwrap(map.new())
+    None -> map.new()
+  }
+
   Ok(StreamMessage(
     sequence: msg.seq,
     time: msg.time,
     message: Message(
       subject: msg.subject,
-      headers: map.new(),
+      headers: hdrs,
       reply_to: None,
       body: body
       |> result.unwrap(""),

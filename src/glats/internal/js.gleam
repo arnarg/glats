@@ -1,3 +1,10 @@
+import gleam/io
+import gleam/base
+import gleam/result
+import gleam/string
+import gleam/list
+import gleam/map
+import gleam/bit_string
 import glats/jetstream.{JetstreamError}
 
 pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
@@ -17,5 +24,33 @@ pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
     10_071 -> jetstream.WrongLastSequence(data.1)
     10_003 -> jetstream.BadRequest(data.1)
     _ -> jetstream.Unknown(data.0, data.1)
+  }
+}
+
+pub fn decode_b64_headers(hdrs: String) {
+  use data <- result.then(
+    base.decode64(hdrs)
+    |> result.map(bit_string.to_string)
+    |> result.flatten,
+  )
+
+  decode_headers(data)
+}
+
+pub fn decode_headers(hdrs: String) {
+  hdrs
+  |> string.split("\n")
+  |> list.filter_map(decode_header)
+  |> map.from_list
+  |> Ok
+}
+
+fn decode_header(line: String) {
+  case
+    line
+    |> string.split(": ")
+  {
+    [key, val] -> Ok(#(key, val))
+    _ -> Error(Nil)
   }
 }
