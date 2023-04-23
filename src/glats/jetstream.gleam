@@ -9,6 +9,8 @@ pub type JetstreamError {
   InsufficientResources(String)
   // code: 10052
   InvalidStreamConfig(String)
+  // code: 10056
+  StreamNameInSubjectDoesNotMatch(String)
   // code: 10058
   StreamNameInUse(String)
   // code: 10059

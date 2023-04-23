@@ -1,4 +1,7 @@
 defmodule Glats.Jetstream do
+  ############
+  ## Stream ##
+  ############
   # Catches stream info when there's an error.
   def decode_info_data(%{"error" => %{"err_code" => code, "description" => description}}) do
     {:error, {code, description}}
@@ -84,6 +87,81 @@ defmodule Glats.Jetstream do
       }
     }
   end
+
+  ##############
+  ## Consumer ##
+  ##############
+  # Catches consumer info when there's an error.
+  def decode_consumer_info_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decodes consumer info.
+  def decode_consumer_info_data(%{
+    "stream_name" => stream,
+    "name" => name,
+    "created" => created,
+    "config" => config,
+    "delivered" => delivered,
+    "ack_floor" => ack_floor,
+    "num_ack_pending" => num_ack_pending,
+    "num_redelivered" => num_redelivered,
+    "num_waiting" => num_waiting,
+    "num_pending" => num_pending,
+  }) do
+    {:ok,
+      {:consumer_info,
+        stream,
+        name,
+        created,
+        decode_consumer_config(config),
+        decode_sequence_info(delivered),
+        decode_sequence_info(ack_floor),
+        num_ack_pending,
+        num_redelivered,
+        num_waiting,
+        num_pending,
+      }
+    }
+  end
+  # Decodes stream config.
+  def decode_consumer_config(config) do
+    {:consumer_config,
+      optional(Map.get(config, "durable_name")),
+      optional(Map.get(config, "description")),
+      optional(Map.get(config, "filter_subject")),
+      decode_ack_policy(Map.get(config, "ack_policy")),
+      optional(Map.get(config, "ack_wait")),
+      decode_deliver_policy(Map.get(config, "deliver_policy")),
+      optional(Map.get(config, "inactive_threshold")),
+      optional(Map.get(config, "max_ack_pending")),
+      optional(Map.get(config, "max_pending")),
+      decode_replay_policy(Map.get(config, "replay_policy")),
+      optional(Map.get(config, "num_replicas")),
+      optional(Map.get(config, "sample_freq")),
+    }
+  end
+  # Decodes ack policy
+  def decode_ack_policy("all") do :ack_all end
+  def decode_ack_policy("none") do :ack_none end
+  def decode_ack_policy("explicit") do :ack_explicit end
+  # Decodes deliver policy
+  def decode_deliver_policy("all") do :deliver_all end
+  def decode_deliver_policy("last") do :deliver_last end
+  def decode_deliver_policy("last_per_subject") do :deliver_last_per_subject end
+  def decode_deliver_policy("new") do :deliver_new end
+  def decode_deliver_policy("by_start_sequence") do {:deliver_by_start_sequence, 0} end
+  def decode_deliver_policy("by_start_time") do {:deliver_by_start_time, ""} end
+  # Decodes replay policy
+  def decode_replay_policy("instant") do :replay_instant end
+  def decode_replay_policy("original") do :replay_original end
+  # Decodes sequence info
+  def decode_sequence_info(%{"consumer_seq" => consumer_seq, "stream_seq" => stream_seq}) do
+    {:sequence_info,
+      consumer_seq,
+      stream_seq,
+    }
+  end
+
 
   # Returns Some(val) or None depending on nil or not.
   def optional(nil) do :none end

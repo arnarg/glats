@@ -6,6 +6,7 @@ pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
     10_076 -> jetstream.JetstreamNotEnabled(data.1)
     10_023 -> jetstream.InsufficientResources(data.1)
     10_052 -> jetstream.InvalidStreamConfig(data.1)
+    10_056 -> jetstream.StreamNameInSubjectDoesNotMatch(data.1)
     10_058 -> jetstream.StreamNameInUse(data.1)
     10_059 -> jetstream.StreamNotFound(data.1)
     10_110 -> jetstream.StreamPurgeNotAllowed(data.1)
