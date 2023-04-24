@@ -174,6 +174,15 @@ defmodule Glats.Jetstream do
     }
   end
 
+  # Catches error in response for names
+  def decode_consumer_names_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decodes names response
+  def decode_consumer_names_data(%{"consumers" => consumers}) do
+    {:ok, consumers}
+  end
+
 
   # Returns Some(val) or None depending on nil or not.
   def optional(nil) do :none end

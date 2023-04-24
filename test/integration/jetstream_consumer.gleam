@@ -14,6 +14,9 @@ pub fn main() {
   let assert Ok(stream) =
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
+  consumer.names(conn, "mystream")
+  |> io.debug
+
   let assert Ok(created) =
     consumer.create(
       conn,
@@ -21,6 +24,15 @@ pub fn main() {
       [DurableName("myconsumer"), FilterSubject("orders.*")],
     )
     |> io.debug
+
+  consumer.names(conn, "mystream")
+  |> io.debug
+
+  consumer.delete(conn, stream.config.name, created.name)
+  |> io.debug
+
+  consumer.names(conn, "mystream")
+  |> io.debug
 
   Ok(Nil)
 }

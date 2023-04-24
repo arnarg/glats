@@ -224,6 +224,68 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
   }
 }
 
+//                 //
+// Delete Consumer //
+//                 //
+
+/// Deletes a consumer
+///
+pub fn delete(conn: Connection, stream: String, name: String) {
+  let subject = consumer_prefix <> ".DELETE." <> stream <> "." <> name
+
+  case glats.request(conn, subject, "", 1000) {
+    Ok(msg) -> decode_delete(msg.body)
+    // TODO: use actual descriptive error
+    Error(_) -> Error(jetstream.StreamNotFound(""))
+  }
+}
+
+external fn decode_delete_data(
+  data: Map(String, Dynamic),
+) -> Result(Nil, #(Int, String)) =
+  "Elixir.Glats.Jetstream" "decode_delete_data"
+
+fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
+  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+
+  json.decode(body, decoder)
+  |> result.map(decode_delete_data)
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
+}
+
+//                //
+// Consumer Names //
+//                //
+
+/// Get list of consumer names in a stream.
+///
+pub fn names(conn: Connection, stream: String) {
+  let subject = consumer_prefix <> ".NAMES." <> stream
+
+  case glats.request(conn, subject, "", 1000) {
+    Ok(msg) -> decode_names(msg.body)
+    // TODO: use actual descriptive error
+    Error(_) -> Error(jetstream.StreamNotFound(""))
+  }
+}
+
+external fn decode_consumer_names_data(
+  data: Map(String, Dynamic),
+) -> Result(Nil, #(Int, String)) =
+  "Elixir.Glats.Jetstream" "decode_consumer_names_data"
+
+fn decode_names(body: String) -> Result(Nil, JetstreamError) {
+  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+
+  json.decode(body, decoder)
+  |> result.map(decode_consumer_names_data)
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
+}
+
 //                                  //
 // Consumer config building helpers //
 //                                  //
