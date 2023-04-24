@@ -58,8 +58,7 @@ import gleam/map.{Map}
 import gleam/option.{None, Option, Some}
 import gleam/erlang/process
 import gleam/otp/actor
-import glats.{Connection, ReceivedMessage, SubscriptionMessage}
-import glats/message.{Message}
+import glats.{Connection, Message, ReceivedMessage, SubscriptionMessage}
 
 /// The message data received from the request handler's subject.
 ///

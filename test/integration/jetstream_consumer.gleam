@@ -3,8 +3,7 @@ import gleam/map
 import gleam/result
 import gleam/option.{Some}
 import gleam/erlang/process
-import glats
-import glats/message.{Message}
+import glats.{Message}
 import glats/jetstream/stream
 import glats/jetstream/consumer.{DurableName, FilterSubject}
 

@@ -7,11 +7,19 @@ import gleam/list
 import gleam/otp/actor
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
-import glats/message.{Message}
-import glats/internal/decoder
 
 pub type Connection =
   Subject(ConnectionMessage)
+
+/// A single message that can be received from or sent to NATS.
+pub type Message {
+  Message(
+    subject: String,
+    headers: Map(String, String),
+    reply_to: Option(String),
+    body: String,
+  )
+}
 
 /// Server info returned by the NATS server.
 pub type ServerInfo {
@@ -262,7 +270,7 @@ fn handle_request(from, subject, message, timeout, state: ConnectionState) {
   let req_func = fn() {
     case gnat_request(state.nats, subject, message, opts) {
       Ok(msg) ->
-        decoder.decode_msg(msg)
+        decode_msg(msg)
         |> result.map_error(fn(_) { Unexpected })
       Error(err) ->
         case atom.to_string(err) {
@@ -374,7 +382,7 @@ fn map_gnat_message(data: Dynamic) -> SubscriptionActorMessage {
   case sid_ {
     Ok(sid) ->
       data
-      |> decoder.decode_msg
+      |> decode_msg
       |> result.map(IncomingMessage(sid, _))
       |> result.unwrap(DecodeError(data))
     Error(_) -> DecodeError(data)
@@ -546,4 +554,43 @@ fn add_ssl_opts(prev: Map(String, Dynamic)) {
   |> list.map(fn(o) { #(atom.create_from_string(o.0), o.1) })
   |> dynamic.from
   |> map.insert(prev, "ssl_opts", _)
+}
+
+// Decode Gnat message
+
+// Decodes a message map returned by NATS
+fn decode_msg(data: Dynamic) {
+  data
+  |> dynamic.decode4(
+    Message,
+    atom_field("topic", dynamic.string),
+    headers,
+    reply_to,
+    atom_field("body", dynamic.string),
+  )
+}
+
+// Decodes headers from a map with message data.
+// If the key is absent (which happens when no headers are sent)
+// an empty map is returned.
+fn headers(data: Dynamic) {
+  data
+  |> atom_field(
+    "headers",
+    dynamic.list(dynamic.tuple2(dynamic.string, dynamic.string)),
+  )
+  |> result.map(map.from_list)
+  |> result.or(Ok(map.new()))
+}
+
+// Decodes reply_to from a map with message data into Option(String).
+// If reply_to is `Nil` None is returned.
+fn reply_to(data: Dynamic) {
+  data
+  |> dynamic.optional(atom_field("reply_to", dynamic.string))
+  |> result.or(Ok(None))
+}
+
+fn atom_field(key: String, value) {
+  dynamic.field(atom.create_from_string(key), value)
 }

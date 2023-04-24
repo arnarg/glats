@@ -6,8 +6,7 @@ import gleam/list
 import gleam/map.{Map}
 import gleam/result
 import gleam/json.{Json}
-import glats.{Connection}
-import glats/message.{Message}
+import glats.{Connection, Message}
 import glats/jetstream.{
   DiscardPolicy, JetstreamError, RetentionPolicy, StorageType,
 }
