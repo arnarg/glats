@@ -10,13 +10,9 @@ A NATS client for Gleam. This wraps Elixir's client, [Gnat](https://hex.pm/packa
 ```gleam
 import gleam/result
 import glats
-import glats/settings
 
 pub fn main() {
-  use conn <- result.then(
-    settings.new("localhost", 4222)
-    |> glats.connect,
-  )
+  use conn <- result.then(glats.connect("localhost", 4222, []))
 
   // Publish a single message to "some.subject".
   assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
@@ -32,14 +28,9 @@ import gleam/io
 import gleam/result
 import gleam/erlang/process
 import glats
-import glats/settings
-import glats/message
 
 pub fn main() {
-  use conn <- result.then(
-    settings.new("localhost", 4222)
-    |> glats.connect,
-  )
+  use conn <- result.then(glats.connect("localhost", 4222, []))
 
   let subject = process.new_subject()
 
@@ -54,7 +45,7 @@ pub fn main() {
   assert Ok(glats.ReceivedMessage(
     conn: _conn, // Reference to the conn used
     sid: _sid,   // Subscription ID for the subscription
-    message: message.Message(
+    message: glats.Message(
       subject: _subject,   // "some.subject"
       headers: _headers,   // empty map
       reply_to: _reply_to, // None
@@ -76,14 +67,10 @@ import gleam/option.{None}
 import gleam/result
 import gleam/erlang/process
 import glats
-import glats/settings
 import glats/handler.{Reply, Request, Response}
 
 pub fn main() {
-  use conn <- result.then(
-    settings.new("localhost", 4222)
-    |> glats.connect,
-  )
+  use conn <- result.then(glats.connect("localhost", 4222, []))
 
   // Start a request handler actor that will call `ping_pong_handler` for
   // every request received from NATS subject "do.ping".
