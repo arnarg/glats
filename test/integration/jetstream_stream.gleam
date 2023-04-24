@@ -2,15 +2,11 @@ import gleam/io
 import gleam/int
 import gleam/result
 import glats
-import glats/settings
 import glats/jetstream.{MemoryStorage, WorkQueuePolicy}
 import glats/jetstream/stream.{Retention, Storage}
 
 pub fn main() {
-  use conn <- result.then(
-    settings.new("localhost", 4222)
-    |> glats.connect,
-  )
+  use conn <- result.then(glats.connect("localhost", 4222, []))
 
   let assert Ok(created) =
     stream.create(

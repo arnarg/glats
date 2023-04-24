@@ -4,16 +4,30 @@ import gleam/dynamic.{Dynamic}
 import gleam/map.{Map}
 import gleam/option.{None, Option, Some}
 import gleam/list
-import gleam/otp/actor.{StartError}
+import gleam/otp/actor
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
-import glats/settings.{Settings}
 import glats/message.{Message}
 import glats/protocol.{ServerInfo}
 import glats/internal/decoder
 
 pub type Connection =
   Subject(ConnectionMessage)
+
+/// Options that can be passed to `connect`.
+///
+pub type ConnectionOption {
+  /// Set a CA cert for the server connection.
+  CACert(String)
+  /// Set client certificate key pair for authentication.
+  ClientCert(String, String)
+  /// Set a custom inbox prefix used by the connection.
+  InboxPrefix(String)
+  /// Set a connection timeout in milliseconds.
+  ConnectionTimeout(Int)
+  /// Enable the no responders behavior.
+  EnableNoResponders
+}
 
 /// Errors that can be returned by the server.
 ///
@@ -119,7 +133,20 @@ external fn gnat_active_subscriptions(Pid) -> Result(Int, Dynamic) =
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
 ///
-pub fn connect(settings: Settings) -> Result(Connection, StartError) {
+/// ## Example
+///
+/// ```gleam
+/// connect(
+///   "localhost",
+///   4222,
+///   [
+///     CACert("/tmp/nats/ca.crt"),
+///     InboxPrefix("_INBOX.custom.prefix."),
+///   ],
+/// )
+/// ```
+///
+pub fn connect(host: String, port: Int, opts: List(ConnectionOption)) {
   // Start actor for NATS connection handling.
   // This just starts Gnat's GenServer module linked to
   // the actor process and translates commands.
@@ -134,12 +161,7 @@ pub fn connect(settings: Settings) -> Result(Connection, StartError) {
         |> process.selecting(subject, fn(msg) { msg })
 
       // Start linked process using Gnat's start_link
-      case
-        gnat_start_link(
-          settings
-          |> build_settings,
-        )
-      {
+      case gnat_start_link(build_settings(host, port, opts)) {
         Ok(pid) ->
           actor.Ready(ConnectionState(nats: pid, self: subject), selector)
         Error(_) -> actor.Failed("starting connection failed")
@@ -191,8 +213,13 @@ fn handle_active_subscriptions(from, state: ConnectionState) {
 // Handles a single publish command.
 //
 fn handle_publish(from, message: Message, state: ConnectionState) {
+  let opts = case message.reply_to {
+    Some(rt) -> [#(atom.create_from_string("reply_to"), rt)]
+    None -> []
+  }
+
   case
-    gnat_pub(state.nats, message.subject, message.body, [])
+    gnat_pub(state.nats, message.subject, message.body, opts)
     |> atom.to_string
   {
     "ok" -> process.send(from, Ok(Nil))
@@ -376,6 +403,9 @@ pub fn publish_message(conn: Connection, message: Message) {
 }
 
 /// Sends a request and listens for a response synchronously.
+/// When connection is established with option `EnableNoResponders`,
+/// `Error(NoResponders)` will be returned immediately if no subscriber
+/// exists for the subject.
 ///
 /// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
 ///
@@ -451,59 +481,47 @@ pub fn active_subscriptions(conn: Connection) {
 // Settings mapping helpers to create a map out of the settings
 // type, which is expected by Gnat's start_link.
 
-fn build_settings(settings: Settings) {
-  []
-  |> take_host(settings)
-  |> take_port(settings)
-  |> take_tls(settings)
-  |> take_ssl_opts(settings)
+fn build_settings(
+  host: String,
+  port: Int,
+  opts: List(ConnectionOption),
+) -> Map(Atom, Dynamic) {
+  [#("host", dynamic.from(host)), #("port", dynamic.from(port))]
+  |> map.from_list
+  |> list.fold(opts, _, apply_conn_option)
+  |> add_ssl_opts
+  |> map.take([
+    "host", "port", "tls", "ssl_opts", "inbox_prefix", "connection_timeout",
+    "no_responders",
+  ])
+  |> map.to_list
+  |> list.map(fn(i) { #(atom.create_from_string(i.0), i.1) })
   |> map.from_list
 }
 
-fn take_host(old: List(#(Atom, Dynamic)), settings: Settings) {
-  case settings.host {
-    Some(host) ->
-      old
-      |> add_opt_to_list("host", host)
-    None -> old
+fn apply_conn_option(prev: Map(String, Dynamic), opt: ConnectionOption) {
+  case opt {
+    CACert(path) ->
+      prev
+      |> map.insert("tls", dynamic.from(True))
+      |> map.insert("cacertfile", dynamic.from(path))
+    ClientCert(cert, key) ->
+      prev
+      |> map.insert("tls", dynamic.from(True))
+      |> map.insert("certfile", dynamic.from(cert))
+      |> map.insert("keyfile", dynamic.from(key))
+    InboxPrefix(prefix) ->
+      map.insert(prev, "inbox_prefix", dynamic.from(prefix))
+    ConnectionTimeout(timeout) ->
+      map.insert(prev, "connection_timeout", dynamic.from(timeout))
+    EnableNoResponders -> map.insert(prev, "no_responders", dynamic.from(True))
   }
 }
 
-fn take_port(old: List(#(Atom, Dynamic)), settings: Settings) {
-  case settings.port {
-    Some(port) ->
-      old
-      |> add_opt_to_list("port", port)
-    None -> old
-  }
-}
-
-fn take_tls(old: List(#(Atom, Dynamic)), settings: Settings) {
-  case settings.tls {
-    Some(tls) ->
-      old
-      |> add_opt_to_list("tls", tls)
-    None -> old
-  }
-}
-
-fn take_ssl_opts(old: List(#(Atom, Dynamic)), settings: Settings) {
-  case settings.ssl_opts {
-    Some(ssl_opts) ->
-      old
-      |> add_opt_to_list(
-        "ssl_opts",
-        ssl_opts
-        |> map.to_list
-        |> list.map(fn(item) {
-          #(atom.create_from_string(item.0), dynamic.from(item.1))
-        }),
-      )
-    None -> old
-  }
-}
-
-fn add_opt_to_list(old: List(#(Atom, Dynamic)), key: String, value) {
-  old
-  |> list.append([#(atom.create_from_string(key), dynamic.from(value))])
+fn add_ssl_opts(prev: Map(String, Dynamic)) {
+  map.take(prev, ["cacertfile", "certfile", "keyfile"])
+  |> map.to_list
+  |> list.map(fn(o) { #(atom.create_from_string(o.0), o.1) })
+  |> dynamic.from
+  |> map.insert(prev, "ssl_opts", _)
 }
