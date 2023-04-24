@@ -131,7 +131,7 @@ defmodule Glats.Jetstream do
       optional(Map.get(config, "filter_subject")),
       decode_ack_policy(Map.get(config, "ack_policy")),
       optional(Map.get(config, "ack_wait")),
-      decode_deliver_policy(Map.get(config, "deliver_policy")),
+      decode_deliver_policy(config),
       optional(Map.get(config, "inactive_threshold")),
       optional(Map.get(config, "max_ack_pending")),
       optional(Map.get(config, "max_pending")),
@@ -145,12 +145,24 @@ defmodule Glats.Jetstream do
   def decode_ack_policy("none") do :ack_none end
   def decode_ack_policy("explicit") do :ack_explicit end
   # Decodes deliver policy
-  def decode_deliver_policy("all") do :deliver_all end
-  def decode_deliver_policy("last") do :deliver_last end
-  def decode_deliver_policy("last_per_subject") do :deliver_last_per_subject end
-  def decode_deliver_policy("new") do :deliver_new end
-  def decode_deliver_policy("by_start_sequence") do {:deliver_by_start_sequence, 0} end
-  def decode_deliver_policy("by_start_time") do {:deliver_by_start_time, ""} end
+  def decode_deliver_policy(%{"deliver_policy" => "all"}) do :deliver_all end
+  def decode_deliver_policy(%{"deliver_policy" => "last"}) do :deliver_last end
+  def decode_deliver_policy(%{"deliver_policy" => "last_per_subject"}) do
+    :deliver_last_per_subject
+  end
+  def decode_deliver_policy(%{"deliver_policy" => "new"}) do :deliver_new end
+  def decode_deliver_policy(%{
+    "deliver_policy" => "by_start_sequence",
+    "opt_start_seq" => seq,
+  }) do
+    {:deliver_by_start_sequence, seq}
+  end
+  def decode_deliver_policy(%{
+    "deliver_policy" => "by_start_time",
+    "opt_start_time" => time,
+  }) do
+    {:deliver_by_start_time, time}
+  end
   # Decodes replay policy
   def decode_replay_policy("instant") do :replay_instant end
   def decode_replay_policy("original") do :replay_original end

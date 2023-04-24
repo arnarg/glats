@@ -249,34 +249,56 @@ fn apply_consumer_options(
 }
 
 fn apply_consumer_option(prev: List(#(String, Json)), opt: ConsumerOption) {
-  let pair = case opt {
-    AckPolicy(pol) -> #(
-      "ack_policy",
-      ack_pol_to_string(pol)
-      |> json.string,
-    )
-    DeliverPolicy(pol) -> #(
-      "deliver_policy",
-      deliver_pol_to_string(pol)
-      |> json.string,
-    )
-    ReplayPolicy(pol) -> #(
-      "replay_policy",
-      replay_pol_to_string(pol)
-      |> json.string,
-    )
-    DurableName(name) -> #("durable_name", json.string(name))
-    Description(desc) -> #("description", json.string(desc))
-    FilterSubject(subj) -> #("filter_subject", json.string(subj))
-    AckWait(num) -> #("ack_wait", json.int(num))
-    InactiveThreshold(num) -> #("inactive_threshold", json.int(num))
-    MaxAckPending(num) -> #("max_ack_pending", json.int(num))
-    MaxDeliver(num) -> #("max_deliver", json.int(num))
-    NumReplicas(num) -> #("num_replicas", json.int(num))
-    SampleFrequency(freq) -> #("sample_freq", json.string(freq))
+  // DeliverPolicy is kind of special as it will contain extra keys within
+  // in certain cases (`DeliverByStartSequence(Int)` and `DeliverByStartTime(String)`)
+  // so we need to handle that differently than the rest.
+  // Maybe this can be done better?
+  case opt {
+    DeliverPolicy(pol) ->
+      deliver_pol_to_list(pol)
+      |> list.append(prev, _)
+    AckPolicy(pol) ->
+      #(
+        "ack_policy",
+        ack_pol_to_string(pol)
+        |> json.string,
+      )
+      |> list.prepend(prev, _)
+    ReplayPolicy(pol) ->
+      #(
+        "replay_policy",
+        replay_pol_to_string(pol)
+        |> json.string,
+      )
+      |> list.prepend(prev, _)
+    DurableName(name) ->
+      #("durable_name", json.string(name))
+      |> list.prepend(prev, _)
+    Description(desc) ->
+      #("description", json.string(desc))
+      |> list.prepend(prev, _)
+    FilterSubject(subj) ->
+      #("filter_subject", json.string(subj))
+      |> list.prepend(prev, _)
+    AckWait(num) ->
+      #("ack_wait", json.int(num))
+      |> list.prepend(prev, _)
+    InactiveThreshold(num) ->
+      #("inactive_threshold", json.int(num))
+      |> list.prepend(prev, _)
+    MaxAckPending(num) ->
+      #("max_ack_pending", json.int(num))
+      |> list.prepend(prev, _)
+    MaxDeliver(num) ->
+      #("max_deliver", json.int(num))
+      |> list.prepend(prev, _)
+    NumReplicas(num) ->
+      #("num_replicas", json.int(num))
+      |> list.prepend(prev, _)
+    SampleFrequency(freq) ->
+      #("sample_freq", json.string(freq))
+      |> list.prepend(prev, _)
   }
-
-  list.prepend(prev, pair)
 }
 
 fn ack_pol_to_string(pol: AckPolicy) {
@@ -287,16 +309,22 @@ fn ack_pol_to_string(pol: AckPolicy) {
   }
 }
 
-fn deliver_pol_to_string(pol: DeliverPolicy) {
+fn deliver_pol_to_list(pol: DeliverPolicy) {
   case pol {
-    DeliverAll -> "all"
-    DeliverLast -> "last"
-    DeliverLastPerSubject -> "last_per_subject"
-    DeliverNew -> "new"
-    // TODO: set OptStartSeq
-    DeliverByStartSequence(_) -> "by_start_sequence"
-    // TODO: set OptStartTime
-    DeliverByStartTime(_) -> "by_start_time"
+    DeliverAll -> [#("deliver_policy", json.string("all"))]
+    DeliverLast -> [#("deliver_policy", json.string("last"))]
+    DeliverLastPerSubject -> [
+      #("deliver_policy", json.string("last_per_subject")),
+    ]
+    DeliverNew -> [#("deliver_policy", json.string("new"))]
+    DeliverByStartSequence(seq) -> [
+      #("deliver_policy", json.string("by_start_sequence")),
+      #("opt_start_seq", json.int(seq)),
+    ]
+    DeliverByStartTime(time) -> [
+      #("deliver_policy", json.string("by_start_time")),
+      #("opt_start_time", json.string(time)),
+    ]
   }
 }
 
