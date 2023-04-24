@@ -8,11 +8,27 @@ import gleam/otp/actor
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
 import glats/message.{Message}
-import glats/protocol.{ServerInfo}
 import glats/internal/decoder
 
 pub type Connection =
   Subject(ConnectionMessage)
+
+/// Server info returned by the NATS server.
+pub type ServerInfo {
+  ServerInfo(
+    server_id: String,
+    server_name: String,
+    version: String,
+    go: String,
+    host: String,
+    port: Int,
+    headers: Bool,
+    max_payload: Int,
+    proto: Int,
+    jetstream: Bool,
+    auth_required: Option(Bool),
+  )
+}
 
 /// Options that can be passed to `connect`.
 ///
@@ -130,6 +146,12 @@ external fn gnat_server_info(Pid) -> Dynamic =
 external fn gnat_active_subscriptions(Pid) -> Result(Int, Dynamic) =
   "Elixir.Gnat" "active_subscriptions"
 
+// ffi server info decoder
+external fn glats_decode_server_info(
+  Dynamic,
+) -> Result(ServerInfo, ConnectionError) =
+  "Elixir.Glats" "decode_server_info"
+
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
 ///
@@ -193,7 +215,7 @@ fn handle_command(message: ConnectionMessage, state: ConnectionState) {
 //
 fn handle_server_info(from, state: ConnectionState) {
   gnat_server_info(state.nats)
-  |> decoder.decode_server_info
+  |> glats_decode_server_info
   |> result.map_error(fn(_) { Unexpected })
   |> process.send(from, _)
 

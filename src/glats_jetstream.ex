@@ -21,23 +21,23 @@ defmodule Glats.Jetstream do
     {:stream_config,
       Map.get(config, "name"),
       Map.get(config, "subjects"),
-      optional(Map.get(config, "retention")),
-      optional(Map.get(config, "max_consumers")),
-      optional(Map.get(config, "max_msgs")),
-      optional(Map.get(config, "max_bytes")),
-      optional(Map.get(config, "max_age")),
-      optional(Map.get(config, "max_msgs_per_subject")),
-      optional(Map.get(config, "max_msg_size")),
-      optional(Map.get(config, "discard")),
-      optional(Map.get(config, "storage")),
-      optional(Map.get(config, "num_replicas")),
-      optional(Map.get(config, "duplicate_window")),
-      optional(Map.get(config, "allow_direct")),
-      optional(Map.get(config, "mirror_direct")),
-      optional(Map.get(config, "sealed")),
-      optional(Map.get(config, "deny_delete")),
-      optional(Map.get(config, "deny_purge")),
-      optional(Map.get(config, "allow_rollup_hdrs")),
+      Glats.optional(Map.get(config, "retention")),
+      Glats.optional(Map.get(config, "max_consumers")),
+      Glats.optional(Map.get(config, "max_msgs")),
+      Glats.optional(Map.get(config, "max_bytes")),
+      Glats.optional(Map.get(config, "max_age")),
+      Glats.optional(Map.get(config, "max_msgs_per_subject")),
+      Glats.optional(Map.get(config, "max_msg_size")),
+      Glats.optional(Map.get(config, "discard")),
+      Glats.optional(Map.get(config, "storage")),
+      Glats.optional(Map.get(config, "num_replicas")),
+      Glats.optional(Map.get(config, "duplicate_window")),
+      Glats.optional(Map.get(config, "allow_direct")),
+      Glats.optional(Map.get(config, "mirror_direct")),
+      Glats.optional(Map.get(config, "sealed")),
+      Glats.optional(Map.get(config, "deny_delete")),
+      Glats.optional(Map.get(config, "deny_purge")),
+      Glats.optional(Map.get(config, "allow_rollup_hdrs")),
     }
   end
   # Decodes stream state.
@@ -81,7 +81,7 @@ defmodule Glats.Jetstream do
       {:raw_stream_message,
         Map.get(message, "subject"),
         Map.get(message, "seq"),
-        optional(Map.get(message, "hdrs")),
+        Glats.optional(Map.get(message, "hdrs")),
         Map.get(message, "data"),
         Map.get(message, "time"),
       }
@@ -126,18 +126,18 @@ defmodule Glats.Jetstream do
   # Decodes stream config.
   def decode_consumer_config(config) do
     {:consumer_config,
-      optional(Map.get(config, "durable_name")),
-      optional(Map.get(config, "description")),
-      optional(Map.get(config, "filter_subject")),
+      Glats.optional(Map.get(config, "durable_name")),
+      Glats.optional(Map.get(config, "description")),
+      Glats.optional(Map.get(config, "filter_subject")),
       decode_ack_policy(Map.get(config, "ack_policy")),
-      optional(Map.get(config, "ack_wait")),
+      Glats.optional(Map.get(config, "ack_wait")),
       decode_deliver_policy(config),
-      optional(Map.get(config, "inactive_threshold")),
-      optional(Map.get(config, "max_ack_pending")),
-      optional(Map.get(config, "max_pending")),
+      Glats.optional(Map.get(config, "inactive_threshold")),
+      Glats.optional(Map.get(config, "max_ack_pending")),
+      Glats.optional(Map.get(config, "max_pending")),
       decode_replay_policy(Map.get(config, "replay_policy")),
-      optional(Map.get(config, "num_replicas")),
-      optional(Map.get(config, "sample_freq")),
+      Glats.optional(Map.get(config, "num_replicas")),
+      Glats.optional(Map.get(config, "sample_freq")),
     }
   end
   # Decodes ack policy
@@ -182,9 +182,4 @@ defmodule Glats.Jetstream do
   def decode_consumer_names_data(%{"consumers" => consumers}) do
     {:ok, consumers}
   end
-
-
-  # Returns Some(val) or None depending on nil or not.
-  def optional(nil) do :none end
-  def optional(val) do {:some, val} end
 end

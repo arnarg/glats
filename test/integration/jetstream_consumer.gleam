@@ -11,6 +11,9 @@ import glats/jetstream/consumer.{DurableName, FilterSubject}
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
+  glats.server_info(conn)
+  |> io.debug
+
   let assert Ok(stream) =
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
