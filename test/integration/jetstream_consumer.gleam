@@ -1,9 +1,8 @@
 import gleam/io
-import gleam/map
 import gleam/result
-import gleam/option.{Some}
 import gleam/erlang/process
-import glats.{Message}
+import glats
+import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{DurableName, FilterSubject}
 
@@ -24,9 +23,9 @@ pub fn main() {
     )
     |> io.debug
 
-  // let assert Ok(Nil) =
-  //   glats.publish(conn, "orders.1", "order_data")
-  //   |> io.debug
+  let assert Ok(Nil) =
+    glats.publish(conn, "orders.1", "order_data")
+    |> io.debug
 
   // let assert Ok(Nil) =
   //   glats.publish(conn, "orders.2", "order_data")
@@ -34,19 +33,22 @@ pub fn main() {
 
   let subject = process.new_subject()
 
-  glats.subscribe(conn, subject, "_INBOX.subscriber")
+  glats.subscribe(conn, subject, "_INBOX.my.subscription")
 
-  glats.publish_message(
+  consumer.request_next_message(
     conn,
-    Message(
-      subject: "$JS.API.CONSUMER.MSG.NEXT.mystream.myconsumer",
-      headers: map.new(),
-      reply_to: Some("_INBOX.subscriber"),
-      body: "1",
-    ),
+    "mystream",
+    "myconsumer",
+    "_INBOX.my.subscription",
+    [consumer.NoWait],
   )
+  |> io.debug
 
-  process.receive(subject, 100_000)
+  let assert Ok(msg) =
+    process.receive(subject, 1000)
+    |> io.debug
+
+  jetstream.ack(conn, msg.message)
   |> io.debug
 
   Ok(Nil)

@@ -1,3 +1,5 @@
+import glats.{Connection, Message}
+
 /// Errors that can be returned when working with Jetstream.
 ///
 pub type JetstreamError {
@@ -47,4 +49,27 @@ pub type RetentionPolicy {
 pub type DiscardPolicy {
   DiscardOld
   DiscardNew
+}
+
+/// Sends an acknowledgement for a message.
+///
+pub fn ack(conn: Connection, message: Message) {
+  glats.respond(conn, message, "")
+}
+
+/// Sends a term acknowledgement for a message.
+///
+/// Instructs the server to stop redelivery of a message without acknowledging
+/// it as successfully processed.
+///
+pub fn term(conn: Connection, message: Message) {
+  glats.respond(conn, message, "+TERM")
+}
+
+/// Sends a negative acknowledgement for a message.
+///
+/// Delivery will be retried until ack'd or term'd.
+///
+pub fn nack(conn: Connection, message: Message) {
+  glats.respond(conn, message, "-NAK")
 }

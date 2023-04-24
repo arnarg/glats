@@ -1,10 +1,10 @@
 import gleam/map.{Map}
 import gleam/dynamic.{Dynamic}
-import gleam/option.{Option}
+import gleam/option.{Option, Some}
 import gleam/list
 import gleam/result
 import gleam/json.{Json}
-import glats.{Connection}
+import glats.{Connection, Message}
 import glats/jetstream.{JetstreamError}
 import glats/internal/js
 
@@ -284,6 +284,60 @@ fn decode_names(body: String) -> Result(Nil, JetstreamError) {
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
   |> result.map_error(js.map_code_to_error)
+}
+
+//                      //
+// Request Next Message //
+//                      //
+
+/// Options for `request_next_message`.
+pub type RequestMessageOption {
+  /// The number of messages to receive. Defaults to 1.
+  Batch(Int)
+  /// Get an empty message immediately if no new ones exist for
+  /// the consumer.
+  NoWait
+  /// Expiry time for the request in nanoseconds.
+  Expires(Int)
+}
+
+/// Requeust the next message for a consumer.
+///
+pub fn request_next_message(
+  conn: Connection,
+  stream: String,
+  consumer: String,
+  reply_to: String,
+  opts: List(RequestMessageOption),
+) {
+  let subject = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
+
+  glats.publish_message(
+    conn,
+    Message(
+      subject: subject,
+      headers: map.new(),
+      reply_to: Some(reply_to),
+      body: make_req_body(opts),
+    ),
+  )
+}
+
+fn make_req_body(opts: List(RequestMessageOption)) {
+  [#("batch", json.int(1))]
+  |> map.from_list
+  |> list.fold(opts, _, apply_req_opt)
+  |> map.to_list
+  |> json.object
+  |> json.to_string
+}
+
+fn apply_req_opt(prev: Map(String, Json), opt: RequestMessageOption) {
+  case opt {
+    Batch(size) -> map.insert(prev, "batch", json.int(size))
+    Expires(time) -> map.insert(prev, "expires", json.int(time))
+    NoWait -> map.insert(prev, "no_wait", json.bool(True))
+  }
 }
 
 //                                  //

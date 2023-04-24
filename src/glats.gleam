@@ -453,6 +453,15 @@ pub fn request(conn: Connection, subject: String, message: String, timeout: Int)
   make_request()
 }
 
+/// Sends a respond to a Message's reply_to subject.
+///
+pub fn respond(conn: Connection, message: Message, body: String) {
+  case message.reply_to {
+    Some(rt) -> publish(conn, rt, body)
+    None -> Error("no reply to subject")
+  }
+}
+
 //           //
 // Subscribe //
 //           //
