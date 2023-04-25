@@ -72,8 +72,8 @@ import glats/handler.{Reply, Request, Response}
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
-  // Start a request handler actor that will call `ping_pong_handler` for
-  // every request received from NATS subject "do.ping".
+  // Start a request handler actor that will call `ping_pong_handler`
+  // for every request received from NATS subject "do.ping".
   assert Ok(_actor) =
     handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
 
@@ -105,6 +105,88 @@ $ nats req do.ping 'Hello'
 12:16:47 Sending request on "do.ping"
 12:16:47 Received with rtt 427.64µs
 Hello from glats!
+```
+
+## Jetstream
+
+### Pull subscription
+
+```gleam
+import gleam/io
+import gleam/result
+import gleam/option.{None}
+import gleam/erlang/process
+import glats.{Message, ReceivedMessage}
+import glats/jetstream
+import glats/jetstream/stream
+import glats/jetstream/consumer.{
+  AckExplicit, AckPolicy, BindStream, Description, InactiveThreshold,
+  NoWait, With,
+}
+
+pub fn main() {
+  use conn <- result.then(glats.connect("localhost", 4222, []))
+
+  // Create a stream
+  let assert Ok(stream) =
+    stream.create(conn, "mystream", ["orders.>", "items.>"], [])
+
+  // Publish 3 messages to subjects contained in the stream
+  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data")
+  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data")
+  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data")
+
+  // Subscribe to subject in the stream using an ephemeral consumer
+  let subject = process.new_subject()
+  let assert Ok(sub) =
+    consumer.subscribe(
+      conn,
+      subject,
+      "orders.*",
+      [
+        // Bind to stream created above
+        BindStream(stream.config.name),
+        // Set description for the ephemeral consumer
+        With(Description("An ephemeral consumer for subscription")),
+        // Set ack policy for the consumer
+        With(AckPolicy(AckExplicit)),
+        // Sets the inactive threshold of the ephemeral consumer
+        // to 1 minute
+        With(InactiveThreshold(60_000_000_000)),
+      ],
+    )
+    |> io.debug
+
+  loop(subject, sub)
+}
+
+fn loop(subject, sub: consumer.Subscription) {
+  // Request the next message from the consumer
+  let assert Ok(Nil) =
+    consumer.request_next_message(sub.conn, sub, [NoWait])
+
+  // Receive the next message from the erlang subject
+  let assert Ok(msg) = process.receive(subject, 1000)
+
+  // Process message
+  case msg {
+    // Since we requested next message with `NoWait` option we get a
+    // message with no `reply_to` subject when there is no new message
+    // in the stream
+    ReceivedMessage(message: Message(reply_to: None, ..), ..) -> {
+      io.println("end of stream")
+      Ok(Nil)
+    }
+    _ -> {
+      // Print message contents
+      io.debug(msg)
+      // Ack message
+      let assert Ok(Nil) = jetstream.ack(msg.conn, msg.message)
+      // Run loop again
+      loop(subject, sub)
+    }
+  }
+}
 ```
 
 ## Installation
