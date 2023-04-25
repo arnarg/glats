@@ -1,6 +1,6 @@
 import gleam/map.{Map}
 import gleam/dynamic.{Dynamic}
-import gleam/option.{Option, Some}
+import gleam/option.{None, Option, Some}
 import gleam/list
 import gleam/result
 import gleam/json.{Json}
@@ -25,14 +25,17 @@ pub type SubscriptionOption {
   With(ConsumerOption)
 }
 
-pub type Subscription {
+/// An active subscription to a consumer.
+///
+pub opaque type Subscription {
   PullSubscription(
     conn: Connection,
     sid: Int,
     stream: String,
     consumer: String,
-    subject: String,
+    inbox: String,
   )
+  PushSubscription(conn: Connection, sid: Int)
 }
 
 /// Available options to set during consumer creation and update.
@@ -88,6 +91,18 @@ pub type ConsumerOption {
   /// 0-100 This value is a string and for example allows both `30` and `30%` as valid
   /// values.
   SampleFrequency(String)
+  /// The subject to deliver messages to. Note, setting this field implicitly
+  /// decides whether the consumer is push or pull-based. With a deliver subject,
+  /// the server will push messages to client subscribed to this subject.
+  DeliverSubject(String)
+  /// The queue group name which, if specified, is then used to distribute the
+  /// messages between the subscribers to the consumer. This is analogous to a
+  /// queue group in core NATS.
+  DeliverGroup(String)
+  /// Delivers only the headers of messages in the stream and not the bodies.
+  /// Additionally adds Nats-Msg-Size header to indicate the size of the removed
+  /// payload.
+  HeadersOnly
 }
 
 /// The requirement of client acknowledgements.
@@ -173,6 +188,9 @@ pub type ConsumerConfig {
     replay_policy: ReplayPolicy,
     num_replicas: Option(Int),
     sample_freq: Option(String),
+    deliver_subject: Option(String),
+    deliver_group: Option(String),
+    headers_only: Option(Bool),
   )
 }
 
@@ -329,14 +347,30 @@ pub type RequestMessageOption {
 /// Request the next message for a pull subscription.
 ///
 pub fn request_next_message(sub: Subscription, opts: List(RequestMessageOption)) {
-  let subject =
-    consumer_prefix <> ".MSG.NEXT." <> sub.stream <> "." <> sub.consumer
+  case sub {
+    PullSubscription(conn, _, stream, consumer, inbox) ->
+      do_req_next_msg(conn, stream, consumer, inbox, opts)
+    _ ->
+      Error(jetstream.PullConsumerRequired(
+        "request_next_message only works on pull consumers",
+      ))
+  }
+}
+
+fn do_req_next_msg(
+  conn: Connection,
+  stream: String,
+  consumer: String,
+  inbox: String,
+  opts: List(RequestMessageOption),
+) {
+  let subject = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
 
   // Create a further random subject for this single request
-  let reply_to = sub.subject <> "." <> util.random_string(6)
+  let reply_to = inbox <> "." <> util.random_string(6)
 
   glats.publish_message(
-    sub.conn,
+    conn,
     Message(
       subject: subject,
       headers: map.new(),
@@ -344,6 +378,7 @@ pub fn request_next_message(sub: Subscription, opts: List(RequestMessageOption))
       body: make_req_body(opts),
     ),
   )
+  |> result.map_error(fn(err) { jetstream.Unknown(-1, err) })
 }
 
 fn make_req_body(opts: List(RequestMessageOption)) {
@@ -391,12 +426,43 @@ pub fn subscribe(
   use stream <- result.then(find_stream(conn, subject, opts))
   use consumer <- result.then(find_consumer(conn, stream, subject, opts))
 
+  case consumer.config.deliver_subject {
+    None -> pull_subscribe(conn, subscriber, stream, consumer.name)
+    Some(subj) ->
+      push_subscribe(conn, subscriber, subj, consumer.config.deliver_group)
+  }
+}
+
+fn pull_subscribe(
+  conn: Connection,
+  subscriber: Subject(SubscriptionMessage),
+  stream: String,
+  consumer: String,
+) {
+  // Create a random inbox for the pull subscription
   let inbox = util.random_inbox("")
 
-  // TODO: handle push subscriptions
-
+  // Subscribe to the inbox subject
   glats.subscribe(conn, subscriber, inbox <> ".*")
   |> result.map(PullSubscription(conn, _, stream, consumer, inbox))
+  |> result.map_error(fn(_) {
+    jetstream.Unknown(-1, "unknown subscription error")
+  })
+}
+
+fn push_subscribe(
+  conn: Connection,
+  subscriber: Subject(SubscriptionMessage),
+  subject: String,
+  group: Option(String),
+) {
+  // Subscribe to the deliver subject of the push consumer
+  case group {
+    // Choose a queue subscription or a regular subscription
+    Some(group) -> glats.queue_subscribe(conn, subscriber, subject, group)
+    None -> glats.subscribe(conn, subscriber, subject)
+  }
+  |> result.map(PushSubscription(conn, _))
   |> result.map_error(fn(_) {
     jetstream.Unknown(-1, "unknown subscription error")
   })
@@ -443,7 +509,7 @@ fn find_consumer(
     )
 
   case consumer {
-    Ok(consumer) -> Ok(consumer)
+    Ok(consumer) -> info(conn, stream, consumer)
     Error(Nil) ->
       list.filter_map(
         opts,
@@ -455,7 +521,6 @@ fn find_consumer(
         },
       )
       |> ensure_consumer(conn, stream, subject, _)
-      |> result.map(fn(info) { info.name })
   }
 }
 
@@ -554,6 +619,15 @@ fn apply_consumer_option(prev: List(#(String, Json)), opt: ConsumerOption) {
       |> list.prepend(prev, _)
     SampleFrequency(freq) ->
       #("sample_freq", json.string(freq))
+      |> list.prepend(prev, _)
+    DeliverSubject(subj) ->
+      #("deliver_subject", json.string(subj))
+      |> list.prepend(prev, _)
+    DeliverGroup(group) ->
+      #("deliver_group", json.string(group))
+      |> list.prepend(prev, _)
+    HeadersOnly ->
+      #("headers_only", json.bool(True))
       |> list.prepend(prev, _)
   }
 }

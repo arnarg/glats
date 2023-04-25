@@ -150,6 +150,9 @@ defmodule Glats.Jetstream do
       decode_replay_policy(Map.get(config, "replay_policy")),
       optional(Map.get(config, "num_replicas")),
       optional(Map.get(config, "sample_freq")),
+      optional(Map.get(config, "deliver_subject")),
+      optional(Map.get(config, "deliver_group")),
+      optional(Map.get(config, "headers_only")),
     }
   end
   # Decodes ack policy

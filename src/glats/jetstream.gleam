@@ -35,6 +35,7 @@ pub type JetstreamError {
   DecodeError(String)
   Timeout
   NoResponders
+  PullConsumerRequired(String)
 }
 
 pub type StorageType {

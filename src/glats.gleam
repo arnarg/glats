@@ -7,6 +7,7 @@ import gleam/list
 import gleam/otp/actor
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
+import glats/internal/util
 
 pub type Connection =
   Subject(ConnectionMessage)
@@ -515,6 +516,16 @@ pub fn server_info(conn: Connection) {
 ///
 pub fn active_subscriptions(conn: Connection) {
   process.call(conn, GetActiveSubscriptions, 5000)
+}
+
+//           //
+// New Inbox //
+//           //
+
+/// Returns a new random inbox.
+///
+pub fn new_inbox() {
+  util.random_inbox("_INBOX.")
 }
 
 // Settings mapping helpers to create a map out of the settings
