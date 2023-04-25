@@ -33,19 +33,36 @@ pub fn main() {
 
   let subject = process.new_subject()
 
-  glats.subscribe(conn, subject, "_INBOX.my.subscription")
+  let assert Ok(sub) =
+    consumer.subscribe(
+      conn,
+      subject,
+      "orders.*",
+      [
+        consumer.With(consumer.Description(
+          "An ephemeral consumer for subscription",
+        )),
+        consumer.With(consumer.AckPolicy(consumer.AckExplicit)),
+      ],
+    )
+    |> io.debug
 
-  consumer.request_next_message(
-    conn,
-    "mystream",
-    "myconsumer",
-    "_INBOX.my.subscription",
-    [consumer.NoWait],
-  )
+  consumer.request_next_message(conn, sub, [consumer.NoWait])
   |> io.debug
 
+  // glats.subscribe(conn, subject, "_INBOX.my.subscription")
+
+  // consumer.request_next_message(
+  //   conn,
+  //   "mystream",
+  //   "myconsumer",
+  //   "_INBOX.my.subscription",
+  //   [consumer.NoWait],
+  // )
+  // |> io.debug
+
   let assert Ok(msg) =
-    process.receive(subject, 1000)
+    process.receive(subject, 10_000)
     |> io.debug
 
   jetstream.ack(conn, msg.message)

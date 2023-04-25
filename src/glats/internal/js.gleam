@@ -1,10 +1,10 @@
-import gleam/io
 import gleam/base
 import gleam/result
 import gleam/string
 import gleam/list
 import gleam/map
 import gleam/bit_string
+import glats.{ConnectionError}
 import glats/jetstream.{JetstreamError}
 
 pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
@@ -52,5 +52,13 @@ fn decode_header(line: String) {
   {
     [key, val] -> Ok(#(key, val))
     _ -> Error(Nil)
+  }
+}
+
+pub fn map_glats_error_to_jetstream(err: ConnectionError) -> JetstreamError {
+  case err {
+    glats.Timeout -> jetstream.Timeout
+    glats.NoResponders -> jetstream.NoResponders
+    _ -> jetstream.Unknown(-1, "unknown error")
   }
 }

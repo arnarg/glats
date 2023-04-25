@@ -22,6 +22,6 @@ defmodule Glats do
   end
 
   # Returns Some(val) or None depending on nil or not.
-  def optional(nil) do :none end
-  def optional(val) do {:some, val} end
+  defp optional(nil) do :none end
+  defp optional(val) do {:some, val} end
 end

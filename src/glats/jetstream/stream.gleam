@@ -145,7 +145,7 @@ pub fn info(
 external fn decode_info_data(
   data: Map(String, Dynamic),
 ) -> Result(StreamInfo, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_info_data"
+  "Elixir.Glats.Jetstream" "decode_stream_info_data"
 
 fn decode_info(body: String) {
   let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
@@ -238,7 +238,7 @@ pub fn delete(conn: Connection, name: String) {
 external fn decode_delete_data(
   data: Map(String, Dynamic),
 ) -> Result(Nil, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_delete_data"
+  "Elixir.Glats.Jetstream" "decode_stream_delete_data"
 
 fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
   let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
@@ -269,13 +269,61 @@ pub fn purge(conn: Connection, name: String) {
 external fn decode_purge_data(
   data: Map(String, Dynamic),
 ) -> Result(Int, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_purge_data"
+  "Elixir.Glats.Jetstream" "decode_stream_purge_data"
 
 fn decode_purge(body: String) -> Result(Int, JetstreamError) {
   let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_purge_data)
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
+}
+
+//                             //
+// Find Stream Name By Subject //
+//                             //
+
+/// Tries to find a stream name by subject.
+///
+pub fn find_stream_name_by_subject(
+  conn: Connection,
+  subject: String,
+) -> Result(String, JetstreamError) {
+  let api_subject = stream_prefix <> ".NAMES"
+
+  let body =
+    [#("subject", json.string(subject))]
+    |> json.object
+    |> json.to_string
+
+  case glats.request(conn, api_subject, body, 1000) {
+    Ok(msg) ->
+      case decode_names(msg.body) {
+        Ok(names) ->
+          list.first(names)
+          |> result.map_error(fn(_) {
+            jetstream.StreamNotFound("stream not found")
+          })
+        Error(err) -> Error(err)
+      }
+    Error(err) ->
+      js.map_glats_error_to_jetstream(err)
+      |> Error
+  }
+}
+
+external fn decode_stream_names_data(
+  data: Map(String, Dynamic),
+) -> Result(List(String), #(Int, String)) =
+  "Elixir.Glats.Jetstream" "decode_stream_names_data"
+
+fn decode_names(body: String) -> Result(List(String), JetstreamError) {
+  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+
+  json.decode(body, decoder)
+  |> result.map(decode_stream_names_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
   |> result.map_error(js.map_code_to_error)

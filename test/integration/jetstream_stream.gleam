@@ -18,6 +18,14 @@ pub fn main() {
 
   let assert Ok(info) = stream.info(conn, created.config.name)
 
+  let assert Ok("mystream") =
+    stream.find_stream_name_by_subject(conn, "orders.*")
+    |> io.debug
+
+  let assert Error(jetstream.StreamNotFound(_)) =
+    stream.find_stream_name_by_subject(conn, "nonexisting.*")
+    |> io.debug
+
   io.println("Stream: " <> info.config.name)
   io.println("Created: " <> info.created)
   io.println("Messages: " <> int.to_string(info.state.messages))

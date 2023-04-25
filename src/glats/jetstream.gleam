@@ -33,6 +33,8 @@ pub type JetstreamError {
   BadRequest(String)
   Unknown(Int, String)
   DecodeError(String)
+  Timeout
+  NoResponders
 }
 
 pub type StorageType {

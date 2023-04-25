@@ -3,11 +3,11 @@ defmodule Glats.Jetstream do
   ## Stream ##
   ############
   # Catches stream info when there's an error.
-  def decode_info_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+  def decode_stream_info_data(%{"error" => %{"err_code" => code, "description" => description}}) do
     {:error, {code, description}}
   end
   # Decodes stream info.
-  def decode_info_data(%{"created" => created, "config" => config, "state" => state}) do
+  def decode_stream_info_data(%{"created" => created, "config" => config, "state" => state}) do
     {:ok,
       {:stream_info,
         created,
@@ -21,23 +21,23 @@ defmodule Glats.Jetstream do
     {:stream_config,
       Map.get(config, "name"),
       Map.get(config, "subjects"),
-      Glats.optional(Map.get(config, "retention")),
-      Glats.optional(Map.get(config, "max_consumers")),
-      Glats.optional(Map.get(config, "max_msgs")),
-      Glats.optional(Map.get(config, "max_bytes")),
-      Glats.optional(Map.get(config, "max_age")),
-      Glats.optional(Map.get(config, "max_msgs_per_subject")),
-      Glats.optional(Map.get(config, "max_msg_size")),
-      Glats.optional(Map.get(config, "discard")),
-      Glats.optional(Map.get(config, "storage")),
-      Glats.optional(Map.get(config, "num_replicas")),
-      Glats.optional(Map.get(config, "duplicate_window")),
-      Glats.optional(Map.get(config, "allow_direct")),
-      Glats.optional(Map.get(config, "mirror_direct")),
-      Glats.optional(Map.get(config, "sealed")),
-      Glats.optional(Map.get(config, "deny_delete")),
-      Glats.optional(Map.get(config, "deny_purge")),
-      Glats.optional(Map.get(config, "allow_rollup_hdrs")),
+      optional(Map.get(config, "retention")),
+      optional(Map.get(config, "max_consumers")),
+      optional(Map.get(config, "max_msgs")),
+      optional(Map.get(config, "max_bytes")),
+      optional(Map.get(config, "max_age")),
+      optional(Map.get(config, "max_msgs_per_subject")),
+      optional(Map.get(config, "max_msg_size")),
+      optional(Map.get(config, "discard")),
+      optional(Map.get(config, "storage")),
+      optional(Map.get(config, "num_replicas")),
+      optional(Map.get(config, "duplicate_window")),
+      optional(Map.get(config, "allow_direct")),
+      optional(Map.get(config, "mirror_direct")),
+      optional(Map.get(config, "sealed")),
+      optional(Map.get(config, "deny_delete")),
+      optional(Map.get(config, "deny_purge")),
+      optional(Map.get(config, "allow_rollup_hdrs")),
     }
   end
   # Decodes stream state.
@@ -54,20 +54,20 @@ defmodule Glats.Jetstream do
   end
 
   # Catches stream deletion when there's an error.
-  def decode_delete_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+  def decode_stream_delete_data(%{"error" => %{"err_code" => code, "description" => description}}) do
     {:error, {code, description}}
   end
   # Decodes a stream deletion response.
-  def decode_delete_data(%{"success" => true}) do
+  def decode_stream_delete_data(%{"success" => true}) do
     {:ok, nil}
   end
 
   # Catches stream purge when there's an error.
-  def decode_purge_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+  def decode_stream_purge_data(%{"error" => %{"err_code" => code, "description" => description}}) do
     {:error, {code, description}}
   end
   # Decodes a stream purge response.
-  def decode_purge_data(%{"success" => true, "purged" => count}) do
+  def decode_stream_purge_data(%{"success" => true, "purged" => count}) do
     {:ok, count}
   end
 
@@ -81,11 +81,23 @@ defmodule Glats.Jetstream do
       {:raw_stream_message,
         Map.get(message, "subject"),
         Map.get(message, "seq"),
-        Glats.optional(Map.get(message, "hdrs")),
+        optional(Map.get(message, "hdrs")),
         Map.get(message, "data"),
         Map.get(message, "time"),
       }
     }
+  end
+
+  # Catches error in response for names
+  def decode_stream_names_data(%{"error" => %{"err_code" => code, "description" => description}}) do
+    {:error, {code, description}}
+  end
+  # Decodes names response
+  def decode_stream_names_data(%{"streams" => streams}) do
+    case streams do
+      :null -> {:error, {10059, "no stream with that subject found"}}
+      _ -> {:ok, streams || []}
+    end
   end
 
   ##############
@@ -126,18 +138,18 @@ defmodule Glats.Jetstream do
   # Decodes stream config.
   def decode_consumer_config(config) do
     {:consumer_config,
-      Glats.optional(Map.get(config, "durable_name")),
-      Glats.optional(Map.get(config, "description")),
-      Glats.optional(Map.get(config, "filter_subject")),
+      optional(Map.get(config, "durable_name")),
+      optional(Map.get(config, "description")),
+      optional(Map.get(config, "filter_subject")),
       decode_ack_policy(Map.get(config, "ack_policy")),
-      Glats.optional(Map.get(config, "ack_wait")),
+      optional(Map.get(config, "ack_wait")),
       decode_deliver_policy(config),
-      Glats.optional(Map.get(config, "inactive_threshold")),
-      Glats.optional(Map.get(config, "max_ack_pending")),
-      Glats.optional(Map.get(config, "max_pending")),
+      optional(Map.get(config, "inactive_threshold")),
+      optional(Map.get(config, "max_ack_pending")),
+      optional(Map.get(config, "max_pending")),
       decode_replay_policy(Map.get(config, "replay_policy")),
-      Glats.optional(Map.get(config, "num_replicas")),
-      Glats.optional(Map.get(config, "sample_freq")),
+      optional(Map.get(config, "num_replicas")),
+      optional(Map.get(config, "sample_freq")),
     }
   end
   # Decodes ack policy
@@ -182,4 +194,8 @@ defmodule Glats.Jetstream do
   def decode_consumer_names_data(%{"consumers" => consumers}) do
     {:ok, consumers}
   end
+
+  # Returns Some(val) or None depending on nil or not.
+  defp optional(nil) do :none end
+  defp optional(val) do {:some, val} end
 end

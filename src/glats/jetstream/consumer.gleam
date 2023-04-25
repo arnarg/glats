@@ -4,11 +4,36 @@ import gleam/option.{Option, Some}
 import gleam/list
 import gleam/result
 import gleam/json.{Json}
-import glats.{Connection, Message}
+import gleam/erlang/process.{Subject}
+import glats.{Connection, Message, SubscriptionMessage}
 import glats/jetstream.{JetstreamError}
+import glats/jetstream/stream
 import glats/internal/js
+import glats/internal/util
 
 const consumer_prefix = "$JS.API.CONSUMER"
+
+/// Available options to set during subscribe to a stream subject.
+///
+pub type SubscriptionOption {
+  /// Used to bind to an existing stream and consumer while subscribing.
+  Bind(String, String)
+  /// Used to bind to an existing stream.
+  BindStream(String)
+  /// When not binding to an existing consumer this can be used to add
+  /// consumer options for the consumer that will be created automatically.
+  With(ConsumerOption)
+}
+
+pub type Subscription {
+  PullSubscription(
+    conn: Connection,
+    sid: Int,
+    stream: String,
+    consumer: String,
+    subject: String,
+  )
+}
 
 /// Available options to set during consumer creation and update.
 ///
@@ -301,23 +326,22 @@ pub type RequestMessageOption {
   Expires(Int)
 }
 
-/// Requeust the next message for a consumer.
+/// Requeust the next message for a pull subscription.
 ///
 pub fn request_next_message(
   conn: Connection,
-  stream: String,
-  consumer: String,
-  reply_to: String,
+  subscription: Subscription,
   opts: List(RequestMessageOption),
 ) {
-  let subject = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
+  let subject =
+    consumer_prefix <> ".MSG.NEXT." <> subscription.stream <> "." <> subscription.consumer
 
   glats.publish_message(
     conn,
     Message(
       subject: subject,
       headers: map.new(),
-      reply_to: Some(reply_to),
+      reply_to: Some(subscription.subject),
       body: make_req_body(opts),
     ),
   )
@@ -338,6 +362,124 @@ fn apply_req_opt(prev: Map(String, Json), opt: RequestMessageOption) {
     Expires(time) -> map.insert(prev, "expires", json.int(time))
     NoWait -> map.insert(prev, "no_wait", json.bool(True))
   }
+}
+
+//           //
+// Subscribe //
+//           //
+
+/// Subscribe to a subject in a stream.
+///
+/// - If no option is provided it will attempt to look up a stream
+///   by the subject and create an ephemeral consumer for the
+///   subscription.
+/// - If `Bind("stream", "consumer")` is provided it will subsribe
+///   to the stream and existing consumer, failing if either do not
+///   exist.
+/// - If `BindStream("stream")` is provided it will not attempt to
+///   lookup the stream by subject but creates an ephemeral consumer
+///   for the subscription.
+///
+/// In the cases where an ephemeral consumer will be created
+/// `With(ConsumerOption)` can be provided to configure it.
+///
+pub fn subscribe(
+  conn: Connection,
+  subscriber: Subject(SubscriptionMessage),
+  subject: String,
+  opts: List(SubscriptionOption),
+) {
+  use stream <- result.then(find_stream(conn, subject, opts))
+  use consumer <- result.then(find_consumer(conn, stream, subject, opts))
+
+  let inbox = util.random_inbox("")
+
+  // TODO: handle push subscriptions
+
+  glats.subscribe(conn, subscriber, inbox)
+  |> result.map(PullSubscription(conn, _, stream, consumer, inbox))
+  |> result.map_error(fn(_) {
+    jetstream.Unknown(-1, "unknown subscription error")
+  })
+}
+
+fn find_stream(
+  conn: Connection,
+  subject: String,
+  opts: List(SubscriptionOption),
+) {
+  let stream =
+    list.find_map(
+      opts,
+      fn(opt) {
+        case opt {
+          Bind(stream, _) -> Ok(stream)
+          BindStream(stream) -> Ok(stream)
+          _ -> Error(Nil)
+        }
+      },
+    )
+
+  case stream {
+    Ok(stream) -> Ok(stream)
+    Error(Nil) -> stream.find_stream_name_by_subject(conn, subject)
+  }
+}
+
+fn find_consumer(
+  conn: Connection,
+  stream: String,
+  subject: String,
+  opts: List(SubscriptionOption),
+) {
+  let consumer =
+    list.find_map(
+      opts,
+      fn(opt) {
+        case opt {
+          Bind(_, consumer) -> Ok(consumer)
+          _ -> Error(Nil)
+        }
+      },
+    )
+
+  case consumer {
+    Ok(consumer) -> Ok(consumer)
+    Error(Nil) ->
+      list.filter_map(
+        opts,
+        fn(opt) {
+          case opt {
+            With(o) -> Ok(o)
+            _ -> Error(Nil)
+          }
+        },
+      )
+      |> ensure_consumer(conn, stream, subject, _)
+      |> result.map(fn(info) { info.name })
+  }
+}
+
+fn ensure_consumer(conn, stream, subject: String, opts: List(ConsumerOption)) {
+  let opts = case
+    list.find(
+      opts,
+      fn(opt) {
+        case opt {
+          FilterSubject(_) -> True
+          _ -> False
+        }
+      },
+    )
+  {
+    Ok(_) -> opts
+    Error(Nil) ->
+      opts
+      |> list.prepend(FilterSubject(subject))
+  }
+
+  // Try to create a consumer
+  create(conn, stream, opts)
 }
 
 //                                  //
