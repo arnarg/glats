@@ -9,9 +9,10 @@ pub fn random_inbox(prefix: String) {
     p -> p
   }
 
-  let rand =
-    strong_rand_bytes(16)
-    |> base.encode64(False)
+  prefix <> random_string(16)
+}
 
-  prefix <> rand
+pub fn random_string(len: Int) {
+  strong_rand_bytes(len)
+  |> base.encode64(False)
 }

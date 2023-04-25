@@ -44,7 +44,7 @@ pub fn main() {
 }
 
 fn loop(subject, sub: consumer.Subscription) {
-  let assert Ok(Nil) = consumer.request_next_message(sub.conn, sub, [NoWait])
+  let assert Ok(Nil) = consumer.request_next_message(sub, [NoWait])
 
   let assert Ok(msg) = process.receive(subject, 1000)
 

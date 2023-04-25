@@ -326,22 +326,21 @@ pub type RequestMessageOption {
   Expires(Int)
 }
 
-/// Requeust the next message for a pull subscription.
+/// Request the next message for a pull subscription.
 ///
-pub fn request_next_message(
-  conn: Connection,
-  subscription: Subscription,
-  opts: List(RequestMessageOption),
-) {
+pub fn request_next_message(sub: Subscription, opts: List(RequestMessageOption)) {
   let subject =
-    consumer_prefix <> ".MSG.NEXT." <> subscription.stream <> "." <> subscription.consumer
+    consumer_prefix <> ".MSG.NEXT." <> sub.stream <> "." <> sub.consumer
+
+  // Create a further random subject for this single request
+  let reply_to = sub.subject <> "." <> util.random_string(6)
 
   glats.publish_message(
-    conn,
+    sub.conn,
     Message(
       subject: subject,
       headers: map.new(),
-      reply_to: Some(subscription.subject),
+      reply_to: Some(reply_to),
       body: make_req_body(opts),
     ),
   )
@@ -396,7 +395,7 @@ pub fn subscribe(
 
   // TODO: handle push subscriptions
 
-  glats.subscribe(conn, subscriber, inbox)
+  glats.subscribe(conn, subscriber, inbox <> ".*")
   |> result.map(PullSubscription(conn, _, stream, consumer, inbox))
   |> result.map_error(fn(_) {
     jetstream.Unknown(-1, "unknown subscription error")

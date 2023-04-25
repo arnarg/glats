@@ -163,7 +163,7 @@ pub fn main() {
 fn loop(subject, sub: consumer.Subscription) {
   // Request the next message from the consumer
   let assert Ok(Nil) =
-    consumer.request_next_message(sub.conn, sub, [NoWait])
+    consumer.request_next_message(sub, [NoWait])
 
   // Receive the next message from the erlang subject
   let assert Ok(msg) = process.receive(subject, 1000)
