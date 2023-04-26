@@ -1,8 +1,7 @@
 import gleam/io
 import gleam/result
-import gleam/option.{None}
 import gleam/erlang/process.{Subject}
-import glats.{Message, ReceivedMessage, SubscriptionMessage}
+import glats.{SubscriptionMessage}
 import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{

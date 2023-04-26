@@ -111,6 +111,8 @@ Hello from glats!
 
 ### Pull subscription
 
+Pull consumers allow clients to request batches of messages on demand.
+
 ```gleam
 import gleam/io
 import gleam/result
@@ -186,6 +188,74 @@ fn loop(subject, sub: consumer.Subscription) {
       loop(subject, sub)
     }
   }
+}
+```
+
+### Push subscription
+
+With push consumers messages are automatically published on a
+specified subject.
+
+```gleam
+import gleam/io
+import gleam/result
+import gleam/erlang/process.{Subject}
+import glats.{SubscriptionMessage}
+import glats/jetstream
+import glats/jetstream/stream
+import glats/jetstream/consumer.{
+  AckExplicit, AckPolicy, BindStream, DeliverSubject, Description,
+  InactiveThreshold, With,
+}
+
+pub fn main() {
+  use conn <- result.then(glats.connect("localhost", 4222, []))
+
+  // Create a stream
+  let assert Ok(stream) =
+    stream.create(conn, "mystream", ["orders.>", "items.>"], [])
+
+  // Publish 3 messages to subjects contained in the stream
+  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data")
+  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data")
+  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data")
+
+  // Subscribe to subject using a push consumer by first generating
+  // a random inbox for the push consumer.
+  let subject = process.new_subject()
+  let inbox = glats.new_inbox()
+  let assert Ok(_sub) =
+    consumer.subscribe(
+      conn,
+      subject,
+      "orders.*",
+      [
+        // Bind to stream created above
+        BindStream(stream.config.name),
+        // Make it a push consumer
+        With(DeliverSubject(inbox)),
+        // Set description for the ephemeral consumer
+        With(Description("An ephemeral consumer for subscription")),
+        // Set ack policy for the consumer
+        With(AckPolicy(AckExplicit)),
+        // Sets the inactive threshold of the ephemeral consumer
+        With(InactiveThreshold(60_000_000_000)),
+      ],
+    )
+    |> io.debug
+
+  loop(subject)
+}
+
+fn loop(subject: Subject(SubscriptionMessage)) {
+  let assert Ok(msg) = process.receive(subject, 2000)
+
+  // Print message contents
+  io.debug(msg)
+  // Ack message
+  let assert Ok(Nil) = jetstream.ack(msg.conn, msg.message)
+  // Run loop again
+  loop(subject)
 }
 ```
 
