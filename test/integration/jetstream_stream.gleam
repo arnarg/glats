@@ -31,11 +31,11 @@ pub fn main() {
   io.println("Messages: " <> int.to_string(info.state.messages))
 
   let assert Ok(Nil) =
-    glats.publish(conn, "orders.1", "order_data")
+    glats.publish(conn, "orders.1", "order_data", [])
     |> io.debug
 
   let assert Ok(Nil) =
-    glats.publish(conn, "orders.2", "order_data")
+    glats.publish(conn, "orders.2", "order_data", [])
     |> io.debug
 
   let assert Ok(_) =

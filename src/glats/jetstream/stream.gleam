@@ -136,7 +136,7 @@ pub fn info(
 ) -> Result(StreamInfo, JetstreamError) {
   let topic = stream_prefix <> ".INFO." <> name
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_info(msg.body)
     Error(_) -> Error(jetstream.StreamNotFound(""))
   }
@@ -193,7 +193,7 @@ pub fn create(
     ]
     |> stream_options_to_json(opts)
 
-  case glats.request(conn, topic, body, 1000) {
+  case glats.request(conn, topic, body, [], 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -212,7 +212,7 @@ pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
     [#("name", json.string(name))]
     |> stream_options_to_json(opts)
 
-  case glats.request(conn, topic, body, 1000) {
+  case glats.request(conn, topic, body, [], 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -228,7 +228,7 @@ pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
 pub fn delete(conn: Connection, name: String) {
   let topic = stream_prefix <> ".DELETE." <> name
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_delete(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -259,7 +259,7 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 pub fn purge(conn: Connection, name: String) {
   let topic = stream_prefix <> ".PURGE." <> name
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_purge(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -298,7 +298,7 @@ pub fn find_stream_name_by_subject(
     |> json.object
     |> json.to_string
 
-  case glats.request(conn, topic, body, 1000) {
+  case glats.request(conn, topic, body, [], 1000) {
     Ok(msg) ->
       case decode_names(msg.body) {
         Ok(names) ->
@@ -377,7 +377,7 @@ pub fn get_message(conn: Connection, stream: String, method: AccessMethod) {
   let topic = stream_prefix <> ".MSG.GET." <> stream
   let body = encode_get_message_body(method)
 
-  case glats.request(conn, topic, body, 1000) {
+  case glats.request(conn, topic, body, [], 1000) {
     Ok(msg) ->
       decode_raw_message(msg.body)
       |> result.then(fn(d) {

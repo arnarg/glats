@@ -57,7 +57,7 @@ pub type DiscardPolicy {
 /// Sends an acknowledgement for a message.
 ///
 pub fn ack(conn: Connection, message: Message) {
-  glats.respond(conn, message, "")
+  glats.respond(conn, message, "", [])
 }
 
 /// Sends a term acknowledgement for a message.
@@ -66,7 +66,7 @@ pub fn ack(conn: Connection, message: Message) {
 /// it as successfully processed.
 ///
 pub fn term(conn: Connection, message: Message) {
-  glats.respond(conn, message, "+TERM")
+  glats.respond(conn, message, "+TERM", [])
 }
 
 /// Sends a negative acknowledgement for a message.
@@ -74,5 +74,5 @@ pub fn term(conn: Connection, message: Message) {
 /// Delivery will be retried until ack'd or term'd.
 ///
 pub fn nack(conn: Connection, message: Message) {
-  glats.respond(conn, message, "-NAK")
+  glats.respond(conn, message, "-NAK", [])
 }

@@ -14,6 +14,7 @@ pub type Connection =
   Subject(ConnectionMessage)
 
 /// A single message that can be received from or sent to NATS.
+///
 pub type Message {
   Message(
     topic: String,
@@ -23,7 +24,25 @@ pub type Message {
   )
 }
 
+/// Option that can be specified when publishing a message.
+///
+pub type PublishOption {
+  /// Provide a reply topic with the message that the receiver
+  /// can send data back to.
+  ReplyTo(String)
+  /// Headers to add to the message.
+  Headers(List(#(String, String)))
+}
+
+/// Option that can be specified when subscribing to a topic.
+///
+pub type SubscribeOption {
+  /// Subscribe to a topic as part of a queue group.
+  QueueGroup(String)
+}
+
 /// Server info returned by the NATS server.
+///
 pub type ServerInfo {
   ServerInfo(
     server_id: String,
@@ -74,14 +93,20 @@ pub opaque type ConnectionMessage {
     from: Subject(Result(Int, Error)),
     subscriber: Pid,
     topic: String,
-    queue_group: Option(String),
+    opts: List(SubscribeOption),
   )
   Unsubscribe(from: Subject(Result(Nil, Error)), sid: Int)
-  Publish(from: Subject(Result(Nil, Error)), message: Message)
+  Publish(
+    from: Subject(Result(Nil, Error)),
+    topic: String,
+    body: String,
+    opts: List(PublishOption),
+  )
   Request(
     from: Subject(fn() -> Result(Message, Error)),
     topic: String,
-    message: String,
+    body: String,
+    opts: List(PublishOption),
     timeout: Int,
   )
   GetServerInfo(from: Subject(Result(ServerInfo, Error)))
@@ -95,6 +120,7 @@ pub type SubscriptionMessage {
   ReceivedMessage(conn: Connection, sid: Int, message: Message)
 }
 
+// State kept by the connection process.
 type State {
   State(nats: Pid, subscribers: Map(Pid, Int))
 }
@@ -106,7 +132,7 @@ external fn gnat_start_link(
   "Elixir.Gnat" "start_link"
 
 // Gnat's publish function.
-external fn gnat_pub(Pid, String, String, List(#(Atom, String))) -> Atom =
+external fn gnat_pub(Pid, String, String, List(PublishOption)) -> Atom =
   "Elixir.Gnat" "pub"
 
 // Gnat's request function.
@@ -123,7 +149,7 @@ external fn gnat_sub(
   Pid,
   Pid,
   String,
-  List(#(Atom, String)),
+  List(SubscribeOption),
 ) -> Result(Int, String) =
   "Elixir.Gnat" "sub"
 
@@ -167,11 +193,9 @@ pub fn connect(host: String, port: Int, opts: List(ConnectionOption)) {
     init: fn() {
       process.trap_exits(True)
 
-      let subject = process.new_subject()
       let selector =
         process.new_selector()
         |> process.selecting_trapped_exits(Exited)
-        |> process.selecting(subject, fn(msg) { msg })
 
       // Start linked process using Gnat's start_link
       case gnat_start_link(build_settings(host, port, opts)) {
@@ -212,11 +236,12 @@ fn handle_command(message: ConnectionMessage, state: State) {
             }
           }
       }
-    Publish(from, msg) -> handle_publish(from, msg, state)
-    Request(from, topic, msg, timeout) ->
-      handle_request(from, topic, msg, timeout, state)
-    Subscribe(from, subscriber, topic, queue_group) ->
-      handle_subscribe(from, subscriber, topic, queue_group, state)
+    Publish(from, topic, body, opts) ->
+      handle_publish(from, topic, body, opts, state)
+    Request(from, topic, body, opts, timeout) ->
+      handle_request(from, topic, body, opts, timeout, state)
+    Subscribe(from, subscriber, topic, opts) ->
+      handle_subscribe(from, subscriber, topic, opts, state)
     Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
     GetServerInfo(from) -> handle_server_info(from, state)
     GetActiveSubscriptions(from) -> handle_active_subscriptions(from, state)
@@ -247,14 +272,15 @@ fn handle_active_subscriptions(from, state: State) {
 
 // Handles a single publish command.
 //
-fn handle_publish(from, message: Message, state: State) {
-  let opts = case message.reply_to {
-    Some(rt) -> [#(atom.create_from_string("reply_to"), rt)]
-    None -> []
-  }
-
+fn handle_publish(
+  from,
+  topic: String,
+  body: String,
+  opts: List(PublishOption),
+  state: State,
+) {
   case
-    gnat_pub(state.nats, message.topic, message.body, opts)
+    gnat_pub(state.nats, topic, body, opts)
     |> atom.to_string
   {
     "ok" -> process.send(from, Ok(Nil))
@@ -265,7 +291,14 @@ fn handle_publish(from, message: Message, state: State) {
 
 // Handles a single request command.
 //
-fn handle_request(from, topic, message, timeout, state: State) {
+fn handle_request(
+  from,
+  topic: String,
+  body: String,
+  opts: List(PublishOption),
+  timeout: Int,
+  state: State,
+) {
   let opts = [
     #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
   ]
@@ -273,7 +306,7 @@ fn handle_request(from, topic, message, timeout, state: State) {
   // In order to not block the connection actor we return a function
   // that will make the request.
   let req_func = fn() {
-    case gnat_request(state.nats, topic, message, opts) {
+    case gnat_request(state.nats, topic, body, opts) {
       Ok(msg) ->
         decode_msg(msg)
         |> result.map_error(fn(_) { Unexpected })
@@ -310,14 +343,9 @@ fn handle_subscribe(
   from,
   subscriber: Pid,
   topic: String,
-  queue_group: Option(String),
+  opts: List(SubscribeOption),
   state: State,
 ) {
-  let opts = case queue_group {
-    Some(qg) -> [#(atom.create_from_string("queue_group"), qg)]
-    None -> []
-  }
-
   case gnat_sub(state.nats, subscriber, topic, opts) {
     Ok(sid) ->
       case process.link(subscriber) {
@@ -350,17 +378,31 @@ fn handle_subscribe(
 // Publish //
 //         //
 
+fn take_reply_topic(prev: List(PublishOption), message: Message) {
+  case message.reply_to {
+    Some(rt) -> list.prepend(prev, ReplyTo(rt))
+    None -> prev
+  }
+}
+
 /// Publishes a single message to NATS on a provided topic.
 ///
-pub fn publish(conn: Connection, topic: String, message: String) {
-  publish_message(conn, Message(topic, map.new(), None, message))
+pub fn publish(
+  conn: Connection,
+  topic: String,
+  body: String,
+  opts: List(PublishOption),
+) {
+  process.call(conn, Publish(_, topic, body, opts), 5000)
 }
 
 /// Publishes a single message to NATS using the data from a provided `Message`
 /// record.
 ///
 pub fn publish_message(conn: Connection, message: Message) {
-  process.call(conn, Publish(_, message), 5000)
+  [Headers(map.to_list(message.headers))]
+  |> take_reply_topic(message)
+  |> publish(conn, message.topic, message.body, _)
 }
 
 /// Sends a request and listens for a response synchronously.
@@ -372,13 +414,19 @@ pub fn publish_message(conn: Connection, message: Message) {
 ///
 /// To handle a request from NATS see `handler.handle_request`.
 ///
-pub fn request(conn: Connection, topic: String, message: String, timeout: Int) {
+pub fn request(
+  conn: Connection,
+  topic: String,
+  body: String,
+  opts: List(PublishOption),
+  timeout: Int,
+) {
   // Because Gnat's request function is blocking the connection actor will return
   // a function with all the data set in a clojure that calls the function.
   // This is done in order to not block the entire connection actor when waiting
   // for a response.
   let make_request =
-    process.call(conn, Request(_, topic, message, timeout), 1000)
+    process.call(conn, Request(_, topic, body, opts, timeout), 1000)
 
   // Call the request function returned by the connection actor.
   make_request()
@@ -386,9 +434,14 @@ pub fn request(conn: Connection, topic: String, message: String, timeout: Int) {
 
 /// Sends a respond to a Message's reply_to topic.
 ///
-pub fn respond(conn: Connection, message: Message, body: String) {
+pub fn respond(
+  conn: Connection,
+  message: Message,
+  body: String,
+  opts: List(PublishOption),
+) {
   case message.reply_to {
-    Some(rt) -> publish(conn, rt, body)
+    Some(rt) -> publish(conn, rt, body, opts)
     None -> Error(NoReplyTopic)
   }
 }
@@ -420,6 +473,7 @@ pub fn subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
   topic: String,
+  opts: List(SubscribeOption),
 ) {
   case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
     Ok(sub) -> {
@@ -431,7 +485,7 @@ pub fn subscribe(
             sub
             |> process.subject_owner,
             topic,
-            None,
+            opts,
           ),
           5000,
         )
@@ -477,43 +531,7 @@ pub fn queue_subscribe(
   topic: String,
   group: String,
 ) {
-  case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
-    Ok(sub) -> {
-      case
-        process.call(
-          conn,
-          Subscribe(
-            _,
-            sub
-            |> process.subject_owner,
-            topic,
-            Some(group),
-          ),
-          5000,
-        )
-      {
-        Ok(sid) -> {
-          // unlink from subscription process
-          process.unlink(
-            sub
-            |> process.subject_owner,
-          )
-
-          Ok(sid)
-        }
-        Error(err) -> {
-          // stop subscription actor
-          process.kill(
-            sub
-            |> process.subject_owner,
-          )
-
-          Error(err)
-        }
-      }
-    }
-    Error(_) -> Error(Unexpected)
-  }
+  subscribe(conn, subscriber, topic, [QueueGroup(group)])
 }
 
 //             //

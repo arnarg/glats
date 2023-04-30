@@ -16,9 +16,9 @@ pub fn main() {
   let assert Ok(stream) =
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
-  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data")
+  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data", [])
 
   let subject = process.new_subject()
 

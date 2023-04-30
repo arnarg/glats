@@ -212,7 +212,7 @@ pub fn info(
 ) -> Result(ConsumerInfo, JetstreamError) {
   let topic = consumer_prefix <> ".INFO." <> stream <> "." <> name
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: handle properly
     Error(_) -> Error(jetstream.ConsumerNotFound(""))
@@ -261,7 +261,7 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
 
   let body = consumer_options_to_json(stream, opts)
 
-  case glats.request(conn, topic, body, 1000) {
+  case glats.request(conn, topic, body, [], 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: handle properly
     Error(_) -> Error(jetstream.ConsumerNotFound(""))
@@ -277,7 +277,7 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
 pub fn delete(conn: Connection, stream: String, name: String) {
   let topic = consumer_prefix <> ".DELETE." <> stream <> "." <> name
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_delete(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -308,7 +308,7 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 pub fn names(conn: Connection, stream: String) {
   let topic = consumer_prefix <> ".NAMES." <> stream
 
-  case glats.request(conn, topic, "", 1000) {
+  case glats.request(conn, topic, "", [], 1000) {
     Ok(msg) -> decode_names(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -444,7 +444,7 @@ fn pull_subscribe(
   let inbox = util.random_inbox("")
 
   // Subscribe to the inbox topic
-  glats.subscribe(conn, subscriber, inbox <> ".*")
+  glats.subscribe(conn, subscriber, inbox <> ".*", [])
   |> result.map(PullSubscription(conn, _, stream, consumer, inbox))
   |> result.map_error(fn(_) {
     jetstream.Unknown(-1, "unknown subscription error")
@@ -461,7 +461,7 @@ fn push_subscribe(
   case group {
     // Choose a queue subscription or a regular subscription
     Some(group) -> glats.queue_subscribe(conn, subscriber, topic, group)
-    None -> glats.subscribe(conn, subscriber, topic)
+    None -> glats.subscribe(conn, subscriber, topic, [])
   }
   |> result.map(PushSubscription(conn, _))
   |> result.map_error(fn(_) {

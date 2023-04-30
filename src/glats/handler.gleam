@@ -55,7 +55,9 @@ import gleam/map.{Map}
 import gleam/option.{None, Option, Some}
 import gleam/erlang/process
 import gleam/otp/actor
-import glats.{Connection, Message, ReceivedMessage, SubscriptionMessage}
+import glats.{
+  Connection, Message, ReceivedMessage, SubscribeOption, SubscriptionMessage,
+}
 
 /// The message data received from the request handler's topic.
 ///
@@ -103,7 +105,7 @@ pub fn handle_request(
   conn: Connection,
   state: a,
   topic: String,
-  queue_group: Option(String),
+  opts: List(SubscribeOption),
   handler: RequestHandler(a),
 ) {
   actor.start_spec(actor.Spec(
@@ -113,12 +115,7 @@ pub fn handle_request(
         process.new_selector()
         |> process.selecting(subscriber, fn(msg) { msg })
 
-      let subscription = case queue_group {
-        Some(qg) -> glats.queue_subscribe(conn, subscriber, topic, qg)
-        None -> glats.subscribe(conn, subscriber, topic)
-      }
-
-      case subscription {
+      case glats.subscribe(conn, subscriber, topic, opts) {
         Ok(sid) ->
           actor.Ready(RequestHandlerState(conn, sid, handler, state), selector)
         Error(err) -> actor.Failed(string.inspect(err))

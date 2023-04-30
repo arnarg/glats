@@ -9,9 +9,9 @@ pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
   let assert Ok(_actor) =
-    handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
+    handler.handle_request(conn, [], "do.ping", [], ping_pong_handler)
 
-  let assert Ok(reply) = glats.request(conn, "do.ping", "Hello world", 1000)
+  let assert Ok(reply) = glats.request(conn, "do.ping", "Hello world", [], 1000)
 
   io.println("Got reply: " <> reply.body)
 
