@@ -134,9 +134,9 @@ pub fn info(
   conn: Connection,
   name: String,
 ) -> Result(StreamInfo, JetstreamError) {
-  let subject = stream_prefix <> ".INFO." <> name
+  let topic = stream_prefix <> ".INFO." <> name
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_info(msg.body)
     Error(_) -> Error(jetstream.StreamNotFound(""))
   }
@@ -185,7 +185,7 @@ pub fn create(
   subjects: List(String),
   opts: List(StreamOption),
 ) {
-  let subject = stream_prefix <> ".CREATE." <> name
+  let topic = stream_prefix <> ".CREATE." <> name
   let body =
     [
       #("name", json.string(name)),
@@ -193,7 +193,7 @@ pub fn create(
     ]
     |> stream_options_to_json(opts)
 
-  case glats.request(conn, subject, body, 1000) {
+  case glats.request(conn, topic, body, 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -207,12 +207,12 @@ pub fn create(
 /// Updates the config of a stream.
 ///
 pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
-  let subject = stream_prefix <> ".UPDATE." <> name
+  let topic = stream_prefix <> ".UPDATE." <> name
   let body =
     [#("name", json.string(name))]
     |> stream_options_to_json(opts)
 
-  case glats.request(conn, subject, body, 1000) {
+  case glats.request(conn, topic, body, 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -226,9 +226,9 @@ pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
 /// Deletes a stream.
 ///
 pub fn delete(conn: Connection, name: String) {
-  let subject = stream_prefix <> ".DELETE." <> name
+  let topic = stream_prefix <> ".DELETE." <> name
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_delete(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -257,9 +257,9 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 /// Purges all of the data in a Stream, leaves the Stream.
 ///
 pub fn purge(conn: Connection, name: String) {
-  let subject = stream_prefix <> ".PURGE." <> name
+  let topic = stream_prefix <> ".PURGE." <> name
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_purge(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -291,14 +291,14 @@ pub fn find_stream_name_by_subject(
   conn: Connection,
   subject: String,
 ) -> Result(String, JetstreamError) {
-  let api_subject = stream_prefix <> ".NAMES"
+  let topic = stream_prefix <> ".NAMES"
 
   let body =
     [#("subject", json.string(subject))]
     |> json.object
     |> json.to_string
 
-  case glats.request(conn, api_subject, body, 1000) {
+  case glats.request(conn, topic, body, 1000) {
     Ok(msg) ->
       case decode_names(msg.body) {
         Ok(names) ->
@@ -349,7 +349,7 @@ pub type AccessMethod {
 
 type RawStreamMessage {
   RawStreamMessage(
-    subject: String,
+    topic: String,
     seq: Int,
     hdrs: Option(String),
     data: String,
@@ -374,10 +374,10 @@ external fn decode_raw_stream_message_data(
 /// for this to work.
 ///
 pub fn get_message(conn: Connection, stream: String, method: AccessMethod) {
-  let subject = stream_prefix <> ".MSG.GET." <> stream
+  let topic = stream_prefix <> ".MSG.GET." <> stream
   let body = encode_get_message_body(method)
 
-  case glats.request(conn, subject, body, 1000) {
+  case glats.request(conn, topic, body, 1000) {
     Ok(msg) ->
       decode_raw_message(msg.body)
       |> result.then(fn(d) {
@@ -431,7 +431,7 @@ fn raw_to_stream_message(msg: RawStreamMessage) {
     sequence: msg.seq,
     time: msg.time,
     message: Message(
-      subject: msg.subject,
+      topic: msg.topic,
       headers: hdrs,
       reply_to: None,
       body: body

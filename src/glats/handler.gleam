@@ -15,7 +15,7 @@
 ////   use conn <- result.then(glats.connect("localhost", 4222, []))
 //// 
 ////   // Start a request handler actor that will call `ping_pong_handler` for
-////   // every request received from NATS subject "do.ping".
+////   // every request received from NATS topic "do.ping".
 ////   assert Ok(_actor) =
 ////     handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
 //// 
@@ -57,7 +57,7 @@ import gleam/erlang/process
 import gleam/otp/actor
 import glats.{Connection, Message, ReceivedMessage, SubscriptionMessage}
 
-/// The message data received from the request handler's subject.
+/// The message data received from the request handler's topic.
 ///
 pub type Request {
   Request(headers: Map(String, String), body: String)
@@ -95,14 +95,14 @@ type RequestHandlerState(a) {
   )
 }
 
-/// Starts an actor that subscribes to the desired NATS subject and calls the
+/// Starts an actor that subscribes to the desired NATS topic and calls the
 /// provided request handler with the request data and replies to NATS with
 /// the returned message data from the request handler.
 ///
 pub fn handle_request(
   conn: Connection,
   state: a,
-  subject: String,
+  topic: String,
   queue_group: Option(String),
   handler: RequestHandler(a),
 ) {
@@ -114,8 +114,8 @@ pub fn handle_request(
         |> process.selecting(subscriber, fn(msg) { msg })
 
       let subscription = case queue_group {
-        Some(qg) -> glats.queue_subscribe(conn, subscriber, subject, qg)
-        None -> glats.subscribe(conn, subscriber, subject)
+        Some(qg) -> glats.queue_subscribe(conn, subscriber, topic, qg)
+        None -> glats.subscribe(conn, subscriber, topic)
       }
 
       case subscription {
@@ -154,7 +154,7 @@ fn request_handler_msg(
             glats.publish_message(
               conn,
               Message(
-                subject: reply_to,
+                topic: reply_to,
                 headers: res.headers,
                 reply_to: res.reply_to,
                 body: res.body,

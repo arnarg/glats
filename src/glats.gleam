@@ -16,7 +16,7 @@ pub type Connection =
 /// A single message that can be received from or sent to NATS.
 pub type Message {
   Message(
-    subject: String,
+    topic: String,
     headers: Map(String, String),
     reply_to: Option(String),
     body: String,
@@ -73,14 +73,14 @@ pub opaque type ConnectionMessage {
   Subscribe(
     from: Subject(Result(Int, Error)),
     subscriber: Pid,
-    subject: String,
+    topic: String,
     queue_group: Option(String),
   )
   Unsubscribe(from: Subject(Result(Nil, Error)), sid: Int)
   Publish(from: Subject(Result(Nil, Error)), message: Message)
   Request(
     from: Subject(fn() -> Result(Message, Error)),
-    subject: String,
+    topic: String,
     message: String,
     timeout: Int,
   )
@@ -213,10 +213,10 @@ fn handle_command(message: ConnectionMessage, state: State) {
           }
       }
     Publish(from, msg) -> handle_publish(from, msg, state)
-    Request(from, subject, msg, timeout) ->
-      handle_request(from, subject, msg, timeout, state)
-    Subscribe(from, subscriber, subject, queue_group) ->
-      handle_subscribe(from, subscriber, subject, queue_group, state)
+    Request(from, topic, msg, timeout) ->
+      handle_request(from, topic, msg, timeout, state)
+    Subscribe(from, subscriber, topic, queue_group) ->
+      handle_subscribe(from, subscriber, topic, queue_group, state)
     Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
     GetServerInfo(from) -> handle_server_info(from, state)
     GetActiveSubscriptions(from) -> handle_active_subscriptions(from, state)
@@ -254,7 +254,7 @@ fn handle_publish(from, message: Message, state: State) {
   }
 
   case
-    gnat_pub(state.nats, message.subject, message.body, opts)
+    gnat_pub(state.nats, message.topic, message.body, opts)
     |> atom.to_string
   {
     "ok" -> process.send(from, Ok(Nil))
@@ -265,7 +265,7 @@ fn handle_publish(from, message: Message, state: State) {
 
 // Handles a single request command.
 //
-fn handle_request(from, subject, message, timeout, state: State) {
+fn handle_request(from, topic, message, timeout, state: State) {
   let opts = [
     #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
   ]
@@ -273,7 +273,7 @@ fn handle_request(from, subject, message, timeout, state: State) {
   // In order to not block the connection actor we return a function
   // that will make the request.
   let req_func = fn() {
-    case gnat_request(state.nats, subject, message, opts) {
+    case gnat_request(state.nats, topic, message, opts) {
       Ok(msg) ->
         decode_msg(msg)
         |> result.map_error(fn(_) { Unexpected })
@@ -309,7 +309,7 @@ fn handle_unsubscribe(from, sid, state: State) {
 fn handle_subscribe(
   from,
   subscriber: Pid,
-  subject: String,
+  topic: String,
   queue_group: Option(String),
   state: State,
 ) {
@@ -318,7 +318,7 @@ fn handle_subscribe(
     None -> []
   }
 
-  case gnat_sub(state.nats, subscriber, subject, opts) {
+  case gnat_sub(state.nats, subscriber, topic, opts) {
     Ok(sid) ->
       case process.link(subscriber) {
         True -> {
@@ -350,10 +350,10 @@ fn handle_subscribe(
 // Publish //
 //         //
 
-/// Publishes a single message to NATS on a provided subject.
+/// Publishes a single message to NATS on a provided topic.
 ///
-pub fn publish(conn: Connection, subject: String, message: String) {
-  publish_message(conn, Message(subject, map.new(), None, message))
+pub fn publish(conn: Connection, topic: String, message: String) {
+  publish_message(conn, Message(topic, map.new(), None, message))
 }
 
 /// Publishes a single message to NATS using the data from a provided `Message`
@@ -366,25 +366,25 @@ pub fn publish_message(conn: Connection, message: Message) {
 /// Sends a request and listens for a response synchronously.
 /// When connection is established with option `EnableNoResponders`,
 /// `Error(NoResponders)` will be returned immediately if no subscriber
-/// exists for the subject.
+/// exists for the topic.
 ///
 /// See [request-reply pattern docs.](https://docs.nats.io/nats-concepts/core-nats/reqreply)
 ///
 /// To handle a request from NATS see `handler.handle_request`.
 ///
-pub fn request(conn: Connection, subject: String, message: String, timeout: Int) {
+pub fn request(conn: Connection, topic: String, message: String, timeout: Int) {
   // Because Gnat's request function is blocking the connection actor will return
   // a function with all the data set in a clojure that calls the function.
   // This is done in order to not block the entire connection actor when waiting
   // for a response.
   let make_request =
-    process.call(conn, Request(_, subject, message, timeout), 1000)
+    process.call(conn, Request(_, topic, message, timeout), 1000)
 
   // Call the request function returned by the connection actor.
   make_request()
 }
 
-/// Sends a respond to a Message's reply_to subject.
+/// Sends a respond to a Message's reply_to topic.
 ///
 pub fn respond(conn: Connection, message: Message, body: String) {
   case message.reply_to {
@@ -405,7 +405,7 @@ fn subscription_mapper(
     conn: conn,
     sid: raw_msg.sid,
     message: Message(
-      subject: raw_msg.topic,
+      topic: raw_msg.topic,
       headers: raw_msg.headers,
       reply_to: raw_msg.reply_to,
       body: raw_msg.body,
@@ -413,13 +413,13 @@ fn subscription_mapper(
   )
 }
 
-/// Subscribes to a NATS subject that can be received on the
+/// Subscribes to a NATS topic that can be received on the
 /// provided OTP subject.
 ///
 pub fn subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
-  subject: String,
+  topic: String,
 ) {
   case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
     Ok(sub) -> {
@@ -430,7 +430,7 @@ pub fn subscribe(
             _,
             sub
             |> process.subject_owner,
-            subject,
+            topic,
             None,
           ),
           5000,
@@ -466,7 +466,7 @@ pub fn unsubscribe(conn: Connection, sid: Int) {
   process.call(conn, Unsubscribe(_, sid), 5000)
 }
 
-/// Subscribes to a NATS subject as part of a queue group.
+/// Subscribes to a NATS topic as part of a queue group.
 /// Messages can be received on the provided OTP subject.
 ///
 /// See [Queue Groups docs.](https://docs.nats.io/nats-concepts/core-nats/queue)
@@ -474,7 +474,7 @@ pub fn unsubscribe(conn: Connection, sid: Int) {
 pub fn queue_subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
-  subject: String,
+  topic: String,
   group: String,
 ) {
   case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
@@ -486,7 +486,7 @@ pub fn queue_subscribe(
             _,
             sub
             |> process.subject_owner,
-            subject,
+            topic,
             Some(group),
           ),
           5000,

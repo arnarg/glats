@@ -210,9 +210,9 @@ pub fn info(
   stream: String,
   name: String,
 ) -> Result(ConsumerInfo, JetstreamError) {
-  let subject = consumer_prefix <> ".INFO." <> stream <> "." <> name
+  let topic = consumer_prefix <> ".INFO." <> stream <> "." <> name
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: handle properly
     Error(_) -> Error(jetstream.ConsumerNotFound(""))
@@ -253,7 +253,7 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
     )
 
   // Check if opts include durable name.
-  let subject = case durable_name {
+  let topic = case durable_name {
     Ok(DurableName(name)) ->
       consumer_prefix <> ".CREATE." <> stream <> "." <> name
     Error(Nil) -> consumer_prefix <> ".CREATE." <> stream
@@ -261,7 +261,7 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
 
   let body = consumer_options_to_json(stream, opts)
 
-  case glats.request(conn, subject, body, 1000) {
+  case glats.request(conn, topic, body, 1000) {
     Ok(msg) -> decode_info(msg.body)
     // TODO: handle properly
     Error(_) -> Error(jetstream.ConsumerNotFound(""))
@@ -275,9 +275,9 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
 /// Deletes a consumer
 ///
 pub fn delete(conn: Connection, stream: String, name: String) {
-  let subject = consumer_prefix <> ".DELETE." <> stream <> "." <> name
+  let topic = consumer_prefix <> ".DELETE." <> stream <> "." <> name
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_delete(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -306,9 +306,9 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 /// Get list of consumer names in a stream.
 ///
 pub fn names(conn: Connection, stream: String) {
-  let subject = consumer_prefix <> ".NAMES." <> stream
+  let topic = consumer_prefix <> ".NAMES." <> stream
 
-  case glats.request(conn, subject, "", 1000) {
+  case glats.request(conn, topic, "", 1000) {
     Ok(msg) -> decode_names(msg.body)
     // TODO: use actual descriptive error
     Error(_) -> Error(jetstream.StreamNotFound(""))
@@ -365,15 +365,15 @@ fn do_req_next_msg(
   inbox: String,
   opts: List(RequestMessageOption),
 ) {
-  let subject = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
+  let topic = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
 
-  // Create a further random subject for this single request
+  // Create a further random topic for this single request
   let reply_to = inbox <> "." <> util.random_string(6)
 
   glats.publish_message(
     conn,
     Message(
-      subject: subject,
+      topic: topic,
       headers: map.new(),
       reply_to: Some(reply_to),
       body: make_req_body(opts),
@@ -403,16 +403,16 @@ fn apply_req_opt(prev: Map(String, Json), opt: RequestMessageOption) {
 // Subscribe //
 //           //
 
-/// Subscribe to a subject in a stream.
+/// Subscribe to a topic in a stream.
 ///
 /// - If no option is provided it will attempt to look up a stream
-///   by the subject and create an ephemeral consumer for the
+///   by the topic and create an ephemeral consumer for the
 ///   subscription.
 /// - If `Bind("stream", "consumer")` is provided it will subsribe
 ///   to the stream and existing consumer, failing if either do not
 ///   exist.
 /// - If `BindStream("stream")` is provided it will not attempt to
-///   lookup the stream by subject but creates an ephemeral consumer
+///   lookup the stream by topic but creates an ephemeral consumer
 ///   for the subscription.
 ///
 /// In the cases where an ephemeral consumer will be created
@@ -421,11 +421,11 @@ fn apply_req_opt(prev: Map(String, Json), opt: RequestMessageOption) {
 pub fn subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
-  subject: String,
+  topic: String,
   opts: List(SubscriptionOption),
 ) {
-  use stream <- result.then(find_stream(conn, subject, opts))
-  use consumer <- result.then(find_consumer(conn, stream, subject, opts))
+  use stream <- result.then(find_stream(conn, topic, opts))
+  use consumer <- result.then(find_consumer(conn, stream, topic, opts))
 
   case consumer.config.deliver_subject {
     None -> pull_subscribe(conn, subscriber, stream, consumer.name)
@@ -443,7 +443,7 @@ fn pull_subscribe(
   // Create a random inbox for the pull subscription
   let inbox = util.random_inbox("")
 
-  // Subscribe to the inbox subject
+  // Subscribe to the inbox topic
   glats.subscribe(conn, subscriber, inbox <> ".*")
   |> result.map(PullSubscription(conn, _, stream, consumer, inbox))
   |> result.map_error(fn(_) {
@@ -454,14 +454,14 @@ fn pull_subscribe(
 fn push_subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
-  subject: String,
+  topic: String,
   group: Option(String),
 ) {
-  // Subscribe to the deliver subject of the push consumer
+  // Subscribe to the deliver topic of the push consumer
   case group {
     // Choose a queue subscription or a regular subscription
-    Some(group) -> glats.queue_subscribe(conn, subscriber, subject, group)
-    None -> glats.subscribe(conn, subscriber, subject)
+    Some(group) -> glats.queue_subscribe(conn, subscriber, topic, group)
+    None -> glats.subscribe(conn, subscriber, topic)
   }
   |> result.map(PushSubscription(conn, _))
   |> result.map_error(fn(_) {
@@ -469,11 +469,7 @@ fn push_subscribe(
   })
 }
 
-fn find_stream(
-  conn: Connection,
-  subject: String,
-  opts: List(SubscriptionOption),
-) {
+fn find_stream(conn: Connection, topic: String, opts: List(SubscriptionOption)) {
   let stream =
     list.find_map(
       opts,
@@ -488,14 +484,14 @@ fn find_stream(
 
   case stream {
     Ok(stream) -> Ok(stream)
-    Error(Nil) -> stream.find_stream_name_by_subject(conn, subject)
+    Error(Nil) -> stream.find_stream_name_by_subject(conn, topic)
   }
 }
 
 fn find_consumer(
   conn: Connection,
   stream: String,
-  subject: String,
+  topic: String,
   opts: List(SubscriptionOption),
 ) {
   let consumer =
@@ -521,11 +517,11 @@ fn find_consumer(
           }
         },
       )
-      |> ensure_consumer(conn, stream, subject, _)
+      |> ensure_consumer(conn, stream, topic, _)
   }
 }
 
-fn ensure_consumer(conn, stream, subject: String, opts: List(ConsumerOption)) {
+fn ensure_consumer(conn, stream, topic: String, opts: List(ConsumerOption)) {
   let opts = case
     list.find(
       opts,
@@ -540,7 +536,7 @@ fn ensure_consumer(conn, stream, subject: String, opts: List(ConsumerOption)) {
     Ok(_) -> opts
     Error(Nil) ->
       opts
-      |> list.prepend(FilterSubject(subject))
+      |> list.prepend(FilterSubject(topic))
   }
 
   // Try to create a consumer
