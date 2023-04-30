@@ -8,6 +8,7 @@ import gleam/otp/actor
 import gleam/erlang/atom.{Atom}
 import gleam/erlang/process.{Pid, Subject}
 import glats/internal/util
+import glats/internal/subscription.{RawMessage}
 
 pub type Connection =
   Subject(ConnectionMessage)
@@ -56,7 +57,8 @@ pub type ConnectionOption {
 
 /// Errors that can be returned by the server.
 ///
-pub type ConnectionError {
+pub type Error {
+  NoReplyTopic
   Timeout
   NoResponders
   Unexpected
@@ -69,21 +71,21 @@ pub type ConnectionError {
 /// Message sent to a NATS connection process.
 pub opaque type ConnectionMessage {
   Subscribe(
-    from: Subject(Result(Int, String)),
-    subscriber: Subject(SubscriptionMessage),
+    from: Subject(Result(Int, Error)),
+    subscriber: Pid,
     subject: String,
     queue_group: Option(String),
   )
-  Unsubscribe(from: Subject(Result(Nil, String)), sid: Int)
-  Publish(from: Subject(Result(Nil, String)), message: Message)
+  Unsubscribe(from: Subject(Result(Nil, Error)), sid: Int)
+  Publish(from: Subject(Result(Nil, Error)), message: Message)
   Request(
-    from: Subject(fn() -> Result(Message, ConnectionError)),
+    from: Subject(fn() -> Result(Message, Error)),
     subject: String,
     message: String,
     timeout: Int,
   )
-  GetServerInfo(from: Subject(Result(ServerInfo, ConnectionError)))
-  GetActiveSubscriptions(from: Subject(Result(Int, ConnectionError)))
+  GetServerInfo(from: Subject(Result(ServerInfo, Error)))
+  GetActiveSubscriptions(from: Subject(Result(Int, Error)))
   Exited(process.ExitMessage)
 }
 
@@ -93,26 +95,8 @@ pub type SubscriptionMessage {
   ReceivedMessage(conn: Connection, sid: Int, message: Message)
 }
 
-// This message type is for the interim translating actor that receives
-// messages from Gnat, decodes them into Gleam native `Message` and
-// passes that onto the actual subscriber.
-type SubscriptionActorMessage {
-  GetSid(Subject(Int))
-  IncomingMessage(Int, Message)
-  DecodeError(Dynamic)
-  SubscriberExited
-}
-
-type ConnectionState {
-  ConnectionState(nats: Pid, self: Subject(ConnectionMessage))
-}
-
-type SubscriptionActorState {
-  SubscriptionActorState(
-    conn: Connection,
-    sid: Int,
-    subscriber: Subject(SubscriptionMessage),
-  )
+type State {
+  State(nats: Pid, subscribers: Map(Pid, Int))
 }
 
 // Gnat's GenServer start_link.
@@ -156,9 +140,7 @@ external fn gnat_active_subscriptions(Pid) -> Result(Int, Dynamic) =
   "Elixir.Gnat" "active_subscriptions"
 
 // ffi server info decoder
-external fn glats_decode_server_info(
-  Dynamic,
-) -> Result(ServerInfo, ConnectionError) =
+external fn glats_decode_server_info(Dynamic) -> Result(ServerInfo, Error) =
   "Elixir.Glats" "decode_server_info"
 
 /// Starts an actor that handles a connection to NATS using the provided
@@ -194,7 +176,7 @@ pub fn connect(host: String, port: Int, opts: List(ConnectionOption)) {
       // Start linked process using Gnat's start_link
       case gnat_start_link(build_settings(host, port, opts)) {
         Ok(pid) ->
-          actor.Ready(ConnectionState(nats: pid, self: subject), selector)
+          actor.Ready(State(nats: pid, subscribers: map.new()), selector)
         Error(_) -> actor.Failed("starting connection failed")
       }
     },
@@ -205,9 +187,31 @@ pub fn connect(host: String, port: Int, opts: List(ConnectionOption)) {
 
 // Runs for every command received.
 //
-fn handle_command(message: ConnectionMessage, state: ConnectionState) {
+fn handle_command(message: ConnectionMessage, state: State) {
   case message {
-    Exited(em) -> actor.Stop(em.reason)
+    Exited(em) ->
+      case em.pid == state.nats {
+        // Exited process is Gnat and we can't recover from this
+        True -> actor.Stop(em.reason)
+        // Exited process is something else so we check if it's
+        // in the map of subscribers and unsubscribe it.
+        False ->
+          case map.get(state.subscribers, em.pid) {
+            Ok(sid) -> {
+              gnat_unsub(state.nats, sid, [])
+              actor.Continue(
+                State(
+                  ..state,
+                  subscribers: map.delete(state.subscribers, em.pid),
+                ),
+              )
+            }
+            Error(Nil) -> {
+              io.println("exited process not found in map of subscribers")
+              actor.Continue(state)
+            }
+          }
+      }
     Publish(from, msg) -> handle_publish(from, msg, state)
     Request(from, subject, msg, timeout) ->
       handle_request(from, subject, msg, timeout, state)
@@ -222,7 +226,7 @@ fn handle_command(message: ConnectionMessage, state: ConnectionState) {
 
 // Handles a single server info command.
 //
-fn handle_server_info(from, state: ConnectionState) {
+fn handle_server_info(from, state: State) {
   gnat_server_info(state.nats)
   |> glats_decode_server_info
   |> result.map_error(fn(_) { Unexpected })
@@ -233,7 +237,7 @@ fn handle_server_info(from, state: ConnectionState) {
 
 // Handles a single active subscriptions command.
 //
-fn handle_active_subscriptions(from, state: ConnectionState) {
+fn handle_active_subscriptions(from, state: State) {
   gnat_active_subscriptions(state.nats)
   |> result.map_error(fn(_) { Unexpected })
   |> process.send(from, _)
@@ -243,7 +247,7 @@ fn handle_active_subscriptions(from, state: ConnectionState) {
 
 // Handles a single publish command.
 //
-fn handle_publish(from, message: Message, state: ConnectionState) {
+fn handle_publish(from, message: Message, state: State) {
   let opts = case message.reply_to {
     Some(rt) -> [#(atom.create_from_string("reply_to"), rt)]
     None -> []
@@ -254,14 +258,14 @@ fn handle_publish(from, message: Message, state: ConnectionState) {
     |> atom.to_string
   {
     "ok" -> process.send(from, Ok(Nil))
-    _ -> process.send(from, Error("unknown publish error"))
+    _ -> process.send(from, Error(Unexpected))
   }
   actor.Continue(state)
 }
 
 // Handles a single request command.
 //
-fn handle_request(from, subject, message, timeout, state: ConnectionState) {
+fn handle_request(from, subject, message, timeout, state: State) {
   let opts = [
     #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
   ]
@@ -289,13 +293,13 @@ fn handle_request(from, subject, message, timeout, state: ConnectionState) {
 
 // Handles a single unsubscribe command.
 //
-fn handle_unsubscribe(from, sid, state: ConnectionState) {
+fn handle_unsubscribe(from, sid, state: State) {
   case
     gnat_unsub(state.nats, sid, [])
     |> atom.to_string
   {
     "ok" -> process.send(from, Ok(Nil))
-    _ -> process.send(from, Error("unknown unsubscribe error"))
+    _ -> process.send(from, Error(Unexpected))
   }
   actor.Continue(state)
 }
@@ -304,114 +308,40 @@ fn handle_unsubscribe(from, sid, state: ConnectionState) {
 //
 fn handle_subscribe(
   from,
-  subscriber,
+  subscriber: Pid,
   subject: String,
   queue_group: Option(String),
-  state: ConnectionState,
+  state: State,
 ) {
-  case start_subscription_actor(subscriber, subject, queue_group, state) {
-    Ok(actor) ->
-      case process.try_call(actor, GetSid, 1000) {
-        Ok(sid) -> process.send(from, Ok(sid))
-        Error(_) -> process.send(from, Error("subscribe failed"))
-      }
-    Error(_) -> process.send(from, Error("subscribe failed"))
+  let opts = case queue_group {
+    Some(qg) -> [#(atom.create_from_string("queue_group"), qg)]
+    None -> []
   }
 
-  actor.Continue(state)
-}
-
-//                    //
-// Subscription Actor //
-//                    //
-
-// Since Gnat will send messages from Elixir we need to translate it
-// to a type in Gleam _before_ passing it to the user.
-// This is done by starting a new actor that will receive the messages
-// from Gnat, decode them into `Message` and then send it to the actual
-// subscribing subject.
-//
-fn start_subscription_actor(
-  subscriber,
-  subject,
-  queue_group,
-  state: ConnectionState,
-) {
-  actor.start_spec(actor.Spec(
-    init: fn() {
-      // Monitor subscriber process.
-      let monitor =
-        process.monitor_process(
-          subscriber
-          |> process.subject_owner,
-        )
-
-      let selector =
-        process.new_selector()
-        |> process.selecting_process_down(monitor, fn(_) { SubscriberExited })
-        |> process.selecting_record2(
-          atom.create_from_string("msg"),
-          map_gnat_message,
-        )
-
-      // If a queue group was provided we should pass the option
-      // to gnat_sup.
-      let opts = case queue_group {
-        Some(group) -> [#(atom.create_from_string("queue_group"), group)]
-        None -> []
-      }
-
-      case gnat_sub(state.nats, process.self(), subject, opts) {
-        Ok(sid) ->
-          actor.Ready(
-            SubscriptionActorState(state.self, sid, subscriber),
-            selector,
-          )
-        Error(err) -> actor.Failed(err)
-      }
-    },
-    init_timeout: 5000,
-    loop: subscription_loop,
-  ))
-}
-
-fn map_gnat_message(data: Dynamic) -> SubscriptionActorMessage {
-  let sid_ =
-    data
-    |> dynamic.field(atom.create_from_string("sid"), dynamic.int)
-
-  case sid_ {
+  case gnat_sub(state.nats, subscriber, subject, opts) {
     Ok(sid) ->
-      data
-      |> decode_msg
-      |> result.map(IncomingMessage(sid, _))
-      |> result.unwrap(DecodeError(data))
-    Error(_) -> DecodeError(data)
-  }
-}
+      case process.link(subscriber) {
+        True -> {
+          process.send(from, Ok(sid))
 
-fn subscription_loop(
-  message: SubscriptionActorMessage,
-  state: SubscriptionActorState,
-) {
-  case message {
-    GetSid(from) -> {
-      actor.send(from, state.sid)
+          actor.Continue(
+            State(
+              ..state,
+              subscribers: map.insert(state.subscribers, subscriber, sid),
+            ),
+          )
+        }
+        False -> {
+          // TODO: unsub
+          process.send(from, Error(Unexpected))
+
+          actor.Continue(state)
+        }
+      }
+    Error(_) -> {
+      process.send(from, Error(Unexpected))
+
       actor.Continue(state)
-    }
-    IncomingMessage(sid, msg) -> {
-      actor.send(state.subscriber, ReceivedMessage(state.conn, sid, msg))
-      actor.Continue(state)
-    }
-    DecodeError(data) -> {
-      io.debug(data)
-      actor.Continue(state)
-    }
-    SubscriberExited -> {
-      io.println("subscriber exited")
-      // TODO: handle properly
-      unsubscribe(state.conn, state.sid)
-      actor.Stop(process.Normal)
     }
   }
 }
@@ -459,13 +389,29 @@ pub fn request(conn: Connection, subject: String, message: String, timeout: Int)
 pub fn respond(conn: Connection, message: Message, body: String) {
   case message.reply_to {
     Some(rt) -> publish(conn, rt, body)
-    None -> Error("no reply to subject")
+    None -> Error(NoReplyTopic)
   }
 }
 
 //           //
 // Subscribe //
 //           //
+
+fn subscription_mapper(
+  conn: Connection,
+  raw_msg: RawMessage,
+) -> SubscriptionMessage {
+  ReceivedMessage(
+    conn: conn,
+    sid: raw_msg.sid,
+    message: Message(
+      subject: raw_msg.topic,
+      headers: raw_msg.headers,
+      reply_to: raw_msg.reply_to,
+      body: raw_msg.body,
+    ),
+  )
+}
 
 /// Subscribes to a NATS subject that can be received on the
 /// provided OTP subject.
@@ -475,7 +421,43 @@ pub fn subscribe(
   subscriber: Subject(SubscriptionMessage),
   subject: String,
 ) {
-  process.call(conn, Subscribe(_, subscriber, subject, None), 5000)
+  case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
+    Ok(sub) -> {
+      case
+        process.call(
+          conn,
+          Subscribe(
+            _,
+            sub
+            |> process.subject_owner,
+            subject,
+            None,
+          ),
+          5000,
+        )
+      {
+        Ok(sid) -> {
+          // unlink from subscription process
+          process.unlink(
+            sub
+            |> process.subject_owner,
+          )
+
+          Ok(sid)
+        }
+        Error(err) -> {
+          // stop subscription actor
+          process.kill(
+            sub
+            |> process.subject_owner,
+          )
+
+          Error(err)
+        }
+      }
+    }
+    Error(_) -> Error(Unexpected)
+  }
 }
 
 /// Unsubscribe from a subscription by providing the subscription ID.
@@ -495,7 +477,43 @@ pub fn queue_subscribe(
   subject: String,
   group: String,
 ) {
-  process.call(conn, Subscribe(_, subscriber, subject, Some(group)), 5000)
+  case subscription.start_subscriber(conn, subscriber, subscription_mapper) {
+    Ok(sub) -> {
+      case
+        process.call(
+          conn,
+          Subscribe(
+            _,
+            sub
+            |> process.subject_owner,
+            subject,
+            Some(group),
+          ),
+          5000,
+        )
+      {
+        Ok(sid) -> {
+          // unlink from subscription process
+          process.unlink(
+            sub
+            |> process.subject_owner,
+          )
+
+          Ok(sid)
+        }
+        Error(err) -> {
+          // stop subscription actor
+          process.kill(
+            sub
+            |> process.subject_owner,
+          )
+
+          Error(err)
+        }
+      }
+    }
+    Error(_) -> Error(Unexpected)
+  }
 }
 
 //             //

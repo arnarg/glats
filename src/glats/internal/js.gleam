@@ -4,7 +4,7 @@ import gleam/string
 import gleam/list
 import gleam/map
 import gleam/bit_string
-import glats.{ConnectionError}
+import glats.{Error}
 import glats/jetstream.{JetstreamError}
 
 pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
@@ -55,7 +55,7 @@ fn decode_header(line: String) {
   }
 }
 
-pub fn map_glats_error_to_jetstream(err: ConnectionError) -> JetstreamError {
+pub fn map_glats_error_to_jetstream(err: Error) -> JetstreamError {
   case err {
     glats.Timeout -> jetstream.Timeout
     glats.NoResponders -> jetstream.NoResponders

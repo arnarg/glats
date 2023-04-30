@@ -1,3 +1,4 @@
+import gleam/string
 import gleam/map.{Map}
 import gleam/dynamic.{Dynamic}
 import gleam/option.{None, Option, Some}
@@ -378,7 +379,7 @@ fn do_req_next_msg(
       body: make_req_body(opts),
     ),
   )
-  |> result.map_error(fn(err) { jetstream.Unknown(-1, err) })
+  |> result.map_error(fn(err) { jetstream.Unknown(-1, string.inspect(err)) })
 }
 
 fn make_req_body(opts: List(RequestMessageOption)) {

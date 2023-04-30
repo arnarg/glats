@@ -50,6 +50,7 @@
 //// ```
 ////
 
+import gleam/string
 import gleam/map.{Map}
 import gleam/option.{None, Option, Some}
 import gleam/erlang/process
@@ -120,7 +121,7 @@ pub fn handle_request(
       case subscription {
         Ok(sid) ->
           actor.Ready(RequestHandlerState(conn, sid, handler, state), selector)
-        Error(err) -> actor.Failed(err)
+        Error(err) -> actor.Failed(string.inspect(err))
       }
     },
     init_timeout: 5000,
@@ -163,7 +164,7 @@ fn request_handler_msg(
           case pub_res {
             Ok(Nil) ->
               actor.Continue(RequestHandlerState(..state, inner: new_inner))
-            Error(err) -> actor.Stop(process.Abnormal(err))
+            Error(err) -> actor.Stop(process.Abnormal(string.inspect(err)))
           }
         }
 
