@@ -1,7 +1,5 @@
 import gleam/base
-
-external fn strong_rand_bytes(Int) -> BitString =
-  "crypto" "strong_rand_bytes"
+import gleam/crypto.{strong_random_bytes}
 
 pub fn random_inbox(prefix: String) {
   let prefix = case prefix {
@@ -13,6 +11,6 @@ pub fn random_inbox(prefix: String) {
 }
 
 pub fn random_string(len: Int) {
-  strong_rand_bytes(len)
+  strong_random_bytes(len)
   |> base.encode64(False)
 }

@@ -11,6 +11,7 @@ gnat = "~> 1.6"
 gleam_erlang = "~> 0.18"
 gleam_otp = "~> 0.5"
 gleam_json = "~> 0.5"
+gleam_crypto = "~> 0.3"
 
 [dev-dependencies]
 gleeunit = "~> 0.10"
