@@ -469,6 +469,16 @@ fn subscription_mapper(
 /// Subscribes to a NATS topic that can be received on the
 /// provided OTP subject.
 ///
+/// To subscribe as a member of a queue group, add option
+/// `QueueGroup(String)` to list of options as the last
+/// parameter.
+///
+/// ```gleam
+/// subscribe(conn, subject, "my.topic", [QueueGroup("my-group")])
+/// ```
+///
+/// See [Queue Groups docs.](https://docs.nats.io/nats-concepts/core-nats/queue)
+///
 pub fn subscribe(
   conn: Connection,
   subscriber: Subject(SubscriptionMessage),
@@ -518,20 +528,6 @@ pub fn subscribe(
 ///
 pub fn unsubscribe(conn: Connection, sid: Int) {
   process.call(conn, Unsubscribe(_, sid), 5000)
-}
-
-/// Subscribes to a NATS topic as part of a queue group.
-/// Messages can be received on the provided OTP subject.
-///
-/// See [Queue Groups docs.](https://docs.nats.io/nats-concepts/core-nats/queue)
-///
-pub fn queue_subscribe(
-  conn: Connection,
-  subscriber: Subject(SubscriptionMessage),
-  topic: String,
-  group: String,
-) {
-  subscribe(conn, subscriber, topic, [QueueGroup(group)])
 }
 
 //             //

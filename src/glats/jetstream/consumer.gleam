@@ -6,7 +6,7 @@ import gleam/list
 import gleam/result
 import gleam/json.{Json}
 import gleam/erlang/process.{Subject}
-import glats.{Connection, Message, SubscriptionMessage}
+import glats.{Connection, Message, QueueGroup, SubscriptionMessage}
 import glats/jetstream.{JetstreamError}
 import glats/jetstream/stream
 import glats/internal/js
@@ -475,11 +475,14 @@ fn push_subscribe(
   group: Option(String),
 ) {
   // Subscribe to the deliver topic of the push consumer
-  case group {
-    // Choose a queue subscription or a regular subscription
-    Some(group) -> glats.queue_subscribe(conn, subscriber, topic, group)
-    None -> glats.subscribe(conn, subscriber, topic, [])
-  }
+  glats.subscribe(
+    conn,
+    subscriber,
+    topic,
+    group
+    |> option.map(fn(gr) { [QueueGroup(gr)] })
+    |> option.unwrap([]),
+  )
   |> result.map(PushSubscription(conn, _))
   |> result.map_error(fn(_) {
     jetstream.Unknown(-1, "unknown subscription error")
