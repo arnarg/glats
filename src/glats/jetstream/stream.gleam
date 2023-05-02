@@ -7,12 +7,48 @@ import gleam/map.{Map}
 import gleam/result
 import gleam/json.{Json}
 import glats.{Connection, Message}
-import glats/jetstream.{
-  DiscardPolicy, JetstreamError, RetentionPolicy, StorageType,
-}
+import glats/jetstream.{JetstreamError, StorageType}
 import glats/internal/js
 
 const stream_prefix = "$JS.API.STREAM"
+
+/// Used to set the retention policy of a stream.
+///
+pub type RetentionPolicy {
+  /// Retention based on the various limits that are set
+  /// including: `MaxMessages`, `MaxBytes`, `MaxAge`, and
+  /// `MaxMessagesPerSubject`. If any of these limits are
+  /// set, whichever limit is hit first will cause the
+  /// automatic deletion of the respective message(s).
+  LimitsPolicy
+  /// Retention based on the consumer interest in the
+  /// stream and messages. The base case is that there
+  /// are zero consumers defined for a stream. If messages
+  /// are published to the stream, they will be immediately
+  /// deleted so there is no _interest_.
+  InterestPolicy
+  /// Retention with the typical behavior of a FIFO queue.
+  /// Each message can be consumed only once. This is
+  /// enforced by only allowing _one_ consumer to be created
+  /// for a work-queue stream.
+  WorkQueuePolicy
+}
+
+/// Used to set the discard policy of a stream.
+///
+pub type DiscardPolicy {
+  /// This policy will delete the oldest messages in order
+  /// to maintain the limit. For example, if `MaxAge` is set
+  /// to one minute, the server will automatically delete
+  /// messages older than one minute with this policy.
+  DiscardOld
+  /// This policy will reject new messages from being
+  /// appended to the stream if it would exceed one of the
+  /// limits. An extension to this policy is
+  /// `DiscardNewPerSubject` which will apply this policy
+  /// on a per-subject basis within the stream.
+  DiscardNew
+}
 
 /// Available options to set during stream creation and update.
 ///
@@ -72,6 +108,10 @@ pub type StreamOption {
   /// contents of a stream, or subject in a stream, with a
   /// single new message.
   AllowRollup(Bool)
+  /// If `True`, applies discard new semantics on a per subject
+  /// basis. Requires `DiscardPolicy` to be `DiscardNew` and
+  /// the `MaxMessagesPerSubject` to be set.
+  DiscardNewPerSubject(Bool)
 }
 
 /// Info about stream returned from `info` function.
@@ -486,6 +526,7 @@ fn apply_stream_option(prev: List(#(String, Json)), opt: StreamOption) {
     DenyDelete(val) -> #("deny_delete", json.bool(val))
     DenyPurge(val) -> #("deny_purge", json.bool(val))
     AllowRollup(val) -> #("allow_rollup_hdrs", json.bool(val))
+    DiscardNewPerSubject(val) -> #("discard_new_per_subject", json.bool(val))
   }
 
   list.prepend(prev, pair)
@@ -493,16 +534,16 @@ fn apply_stream_option(prev: List(#(String, Json)), opt: StreamOption) {
 
 fn ret_pol_to_string(pol: RetentionPolicy) {
   case pol {
-    jetstream.LimitsPolicy -> "limits"
-    jetstream.InterestPolicy -> "interest"
-    jetstream.WorkQueuePolicy -> "workqueue"
+    LimitsPolicy -> "limits"
+    InterestPolicy -> "interest"
+    WorkQueuePolicy -> "workqueue"
   }
 }
 
 fn dis_pol_to_string(pol: DiscardPolicy) {
   case pol {
-    jetstream.DiscardOld -> "old"
-    jetstream.DiscardNew -> "new"
+    DiscardOld -> "old"
+    DiscardNew -> "new"
   }
 }
 

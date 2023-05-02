@@ -38,20 +38,11 @@ pub type JetstreamError {
   PullConsumerRequired(String)
 }
 
+/// Sets the storage type in a stream.
+///
 pub type StorageType {
   FileStorage
   MemoryStorage
-}
-
-pub type RetentionPolicy {
-  LimitsPolicy
-  InterestPolicy
-  WorkQueuePolicy
-}
-
-pub type DiscardPolicy {
-  DiscardOld
-  DiscardNew
 }
 
 /// Sends an acknowledgement for a message.

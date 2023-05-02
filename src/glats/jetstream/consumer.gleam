@@ -92,6 +92,23 @@ pub type ConsumerOption {
   /// 0-100 This value is a string and for example allows both `30` and `30%` as valid
   /// values.
   SampleFrequency(String)
+
+  // Pull-specific
+  /// The maximum number of waiting pull requests.
+  MaxWaiting(Int)
+  /// The maximum duration a single pull request will wait for messages to be
+  /// available to pull.
+  MaxRequestExpires(Int)
+  /// The maximum batch size a single pull request can make. When set with
+  /// `MaxRequestMaxBytes`, the batch size will be constrained by whichever
+  /// limit is hit first.
+  MaxRequestBatch(Int)
+  /// The maximum total bytes that can be requested in a given batch. When
+  /// set with `MaxRequestBatch`, the batch size will be constrained by whichever
+  /// limit is hit first.
+  MaxRequestMaxBytes(Int)
+
+  // Push-specific
   /// The subject to deliver messages to. Note, setting this field implicitly
   /// decides whether the consumer is push or pull-based. With a deliver subject,
   /// the server will push messages to client subscribed to this subject.
@@ -616,6 +633,18 @@ fn apply_consumer_option(prev: List(#(String, Json)), opt: ConsumerOption) {
       |> list.prepend(prev, _)
     SampleFrequency(freq) ->
       #("sample_freq", json.string(freq))
+      |> list.prepend(prev, _)
+    MaxWaiting(num) ->
+      #("max_waiting", json.int(num))
+      |> list.prepend(prev, _)
+    MaxRequestExpires(num) ->
+      #("max_expires", json.int(num))
+      |> list.prepend(prev, _)
+    MaxRequestBatch(num) ->
+      #("max_batch", json.int(num))
+      |> list.prepend(prev, _)
+    MaxRequestMaxBytes(num) ->
+      #("max_bytes", json.int(num))
       |> list.prepend(prev, _)
     DeliverSubject(subj) ->
       #("deliver_subject", json.string(subj))
