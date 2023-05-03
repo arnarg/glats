@@ -131,7 +131,7 @@ fn request_handler_loop(
   state: RequestHandlerState(a),
 ) {
   case message {
-    ReceivedMessage(conn, _, msg) -> request_handler_msg(conn, msg, state)
+    ReceivedMessage(conn, _, _, msg) -> request_handler_msg(conn, msg, state)
     _ -> actor.Continue(state)
   }
 }

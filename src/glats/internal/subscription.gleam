@@ -2,7 +2,7 @@ import gleam/io
 import gleam/int
 import gleam/string
 import gleam/map.{Map}
-import gleam/option.{None, Option}
+import gleam/option.{None, Option, Some}
 import gleam/dynamic.{Dynamic}
 import gleam/result
 import gleam/function.{constant}
@@ -14,7 +14,7 @@ import gleam/otp/actor
 pub type RawMessage {
   RawMessage(
     sid: Int,
-    status: Int,
+    status: Option(Int),
     topic: String,
     headers: Map(String, String),
     reply_to: Option(String),
@@ -113,9 +113,10 @@ fn status(data: Dynamic) {
   |> atom_field("status", dynamic.string)
   |> result.map(fn(s) {
     int.parse(s)
-    |> result.unwrap(-1)
+    |> result.map(Some)
+    |> result.unwrap(None)
   })
-  |> result.or(Ok(-1))
+  |> result.or(Ok(None))
 }
 
 // Decodes headers from a map with message data.

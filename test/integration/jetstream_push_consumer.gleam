@@ -1,7 +1,7 @@
 import gleam/io
 import gleam/result
 import gleam/erlang/process.{Subject}
-import glats.{SubscriptionMessage}
+import glats.{ReceivedMessage, SubscriptionMessage}
 import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{
@@ -12,16 +12,20 @@ import glats/jetstream/consumer.{
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
+  // Create a stream
   let assert Ok(stream) =
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
+  // Publish 3 messages to subjects contained in the stream
   let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data", [])
   let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data", [])
   let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data", [])
 
-  let subject = process.new_subject()
+  // Generate a random inbox topic for the push consumer's delivery topic
   let inbox = glats.new_inbox()
 
+  // Subscribe to subject in the stream using an ephemeral consumer
+  let subject = process.new_subject()
   let assert Ok(_sub) =
     consumer.subscribe(
       conn,
@@ -42,16 +46,29 @@ pub fn main() {
     )
     |> io.debug
 
+  // Start loop
   loop(subject)
 }
 
 fn loop(subject: Subject(SubscriptionMessage)) {
-  let assert Ok(msg) = process.receive(subject, 2000)
+  case process.receive(subject, 2000) {
+    // New message received
+    Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
+      // Print message
+      io.debug(msg)
 
-  // Print message contents
-  io.debug(msg)
-  // Ack message
-  let assert Ok(Nil) = jetstream.ack(msg.conn, msg.message)
-  // Run loop again
-  loop(subject)
+      // Acknowledge message
+      let assert Ok(Nil) = jetstream.ack(conn, msg)
+
+      // Run loop again
+      loop(subject)
+    }
+
+    // Error!
+    Error(Nil) -> {
+      io.println("no new message in 2 seconds")
+
+      Ok(Nil)
+    }
+  }
 }

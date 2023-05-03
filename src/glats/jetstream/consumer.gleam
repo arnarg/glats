@@ -351,8 +351,8 @@ fn decode_names(body: String) -> Result(Nil, JetstreamError) {
 // Request Next Message //
 //                      //
 
-/// Options for `request_next_message`.
-pub type RequestMessageOption {
+/// Options for `request_batch`.
+pub type RequestBatchOption {
   /// The number of messages to receive. Defaults to 1.
   Batch(Int)
   /// Get an empty message immediately if no new ones exist for
@@ -362,9 +362,9 @@ pub type RequestMessageOption {
   Expires(Int)
 }
 
-/// Request the next message for a pull subscription.
+/// Request a batch of messages for a pull subscription.
 ///
-pub fn request_next_message(sub: Subscription, opts: List(RequestMessageOption)) {
+pub fn request_batch(sub: Subscription, opts: List(RequestBatchOption)) {
   case sub {
     PullSubscription(conn, _, stream, consumer, inbox) ->
       do_req_next_msg(conn, stream, consumer, inbox, opts)
@@ -380,7 +380,7 @@ fn do_req_next_msg(
   stream: String,
   consumer: String,
   inbox: String,
-  opts: List(RequestMessageOption),
+  opts: List(RequestBatchOption),
 ) {
   let topic = consumer_prefix <> ".MSG.NEXT." <> stream <> "." <> consumer
 
@@ -399,7 +399,7 @@ fn do_req_next_msg(
   |> result.map_error(fn(err) { jetstream.Unknown(-1, string.inspect(err)) })
 }
 
-fn make_req_body(opts: List(RequestMessageOption)) {
+fn make_req_body(opts: List(RequestBatchOption)) {
   [#("batch", json.int(1))]
   |> map.from_list
   |> list.fold(opts, _, apply_req_opt)
@@ -408,7 +408,7 @@ fn make_req_body(opts: List(RequestMessageOption)) {
   |> json.to_string
 }
 
-fn apply_req_opt(prev: Map(String, Json), opt: RequestMessageOption) {
+fn apply_req_opt(prev: Map(String, Json), opt: RequestBatchOption) {
   case opt {
     Batch(size) -> map.insert(prev, "batch", json.int(size))
     Expires(time) -> map.insert(prev, "expires", json.int(time))

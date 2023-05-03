@@ -62,6 +62,14 @@ pub type ServerInfo {
 /// Options that can be passed to `connect`.
 ///
 pub type ConnectionOption {
+  /// Set a username and password for authentication.
+  UserPass(String, String)
+  /// Set a token for authentication.
+  Token(String)
+  /// Set an NKey seed for authentication.
+  NKeySeed(String)
+  /// Set a JWT for authentication.
+  JWT(String)
   /// Set a CA cert for the server connection.
   CACert(String)
   /// Set client certificate key pair for authentication.
@@ -117,7 +125,12 @@ pub opaque type ConnectionMessage {
 /// Message received by a subscribing subject.
 ///
 pub type SubscriptionMessage {
-  ReceivedMessage(conn: Connection, sid: Int, message: Message)
+  ReceivedMessage(
+    conn: Connection,
+    sid: Int,
+    status: Option(Int),
+    message: Message,
+  )
 }
 
 // State kept by the connection process.
@@ -457,6 +470,7 @@ fn subscription_mapper(
   ReceivedMessage(
     conn: conn,
     sid: raw_msg.sid,
+    status: raw_msg.status,
     message: Message(
       topic: raw_msg.topic,
       headers: raw_msg.headers,
@@ -574,7 +588,7 @@ fn build_settings(
   |> add_ssl_opts
   |> map.take([
     "host", "port", "tls", "ssl_opts", "inbox_prefix", "connection_timeout",
-    "no_responders",
+    "no_responders", "username", "password", "token", "nkey_seed", "jwt",
   ])
   |> map.to_list
   |> list.map(fn(i) { #(atom.create_from_string(i.0), i.1) })
@@ -583,6 +597,19 @@ fn build_settings(
 
 fn apply_conn_option(prev: Map(String, Dynamic), opt: ConnectionOption) {
   case opt {
+    UserPass(user, pass) ->
+      prev
+      |> map.insert("username", dynamic.from(user))
+      |> map.insert("password", dynamic.from(pass))
+    Token(token) ->
+      prev
+      |> map.insert("token", dynamic.from(token))
+    NKeySeed(seed) ->
+      prev
+      |> map.insert("nkey_seed", dynamic.from(seed))
+    JWT(jwt) ->
+      prev
+      |> map.insert("jwt", dynamic.from(jwt))
     CACert(path) ->
       prev
       |> map.insert("tls", dynamic.from(True))

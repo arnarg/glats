@@ -112,18 +112,43 @@ Hello from glats!
 ### Pull subscription
 
 Pull consumers allow clients to request batches of messages on demand.
+For best performance set the batch size to as high as possible, but keep
+in mind that the client should be able to process (and ack) the entire
+batch in the `AckWait` time window of the consumer.
+
+In the example below we request a batch of 50 messages with `NoWait` set.
+This instructs NATS to immediately return a response, event when no pending
+messages exist in the stream (in which case we get a message with status `404`).
+That way we can exit the program when we're caught up.
+
+Normally you would request a batch with an expiry time (option `Expires(Int)`),
+in which case the request lasts for the time requested (and a message with status
+`408` is received when it expires).
+
+This allows the client to control the flow of messages instead of NATS flooding
+it when there is high load as is possible with push consumers.
+
+[More info on pull consumers](https://www.byronruth.com/grokking-nats-consumers-part-3/)
 
 ```gleam
 import gleam/io
+import gleam/string
 import gleam/result
-import gleam/option.{None}
-import gleam/erlang/process
-import glats.{Message, ReceivedMessage}
+import gleam/option.{Some}
+import gleam/otp/actor.{InitFailed}
+import gleam/erlang/process.{Abnormal}
+import glats.{ReceivedMessage}
 import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{
-  AckExplicit, AckPolicy, BindStream, Description, InactiveThreshold,
-  NoWait, With,
+  AckExplicit, AckPolicy, Batch, BindStream, Description, InactiveThreshold,
+  NoWait, Subscription, With,
+}
+
+const batch_size = 50
+
+type State {
+  State(sub: Subscription, remaining: Int)
 }
 
 pub fn main() {
@@ -134,9 +159,9 @@ pub fn main() {
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
   // Publish 3 messages to subjects contained in the stream
-  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data")
+  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data", [])
 
   // Subscribe to subject in the stream using an ephemeral consumer
   let subject = process.new_subject()
@@ -153,40 +178,67 @@ pub fn main() {
         // Set ack policy for the consumer
         With(AckPolicy(AckExplicit)),
         // Sets the inactive threshold of the ephemeral consumer
-        // to 1 minute
         With(InactiveThreshold(60_000_000_000)),
       ],
     )
     |> io.debug
 
-  loop(subject, sub)
+  // Start loop
+  case request_and_loop(subject, State(sub: sub, remaining: 0)) {
+    Ok(Nil) -> Ok(Nil)
+    Error(err) -> {
+      io.println("got error: " <> string.inspect(err))
+
+      Error(InitFailed(Abnormal(string.inspect(err))))
+    }
+  }
 }
 
-fn loop(subject, sub: consumer.Subscription) {
-  // Request the next message from the consumer
-  let assert Ok(Nil) =
-    consumer.request_next_message(sub, [NoWait])
+// Requests a batch of messages for the pull consumer and updates state
+fn request_and_loop(subject, state: State) {
+  case consumer.request_batch(state.sub, [Batch(batch_size), NoWait]) {
+    Ok(Nil) -> loop(subject, State(..state, remaining: batch_size))
+    Error(_) -> Error(Nil)
+  }
+}
 
-  // Receive the next message from the erlang subject
-  let assert Ok(msg) = process.receive(subject, 1000)
+// Receives messages
+fn loop(subject, state: State) {
+  case process.receive(subject, 2000) {
+    // When request expires we get a message with status of `408`.
+    Ok(ReceivedMessage(status: Some(408), ..)) -> {
+      io.println("request expired, requesting more")
 
-  // Process message
-  case msg {
-    // Since we requested next message with `NoWait` option we get a
-    // message with no `reply_to` subject when there is no new message
-    // in the stream
-    ReceivedMessage(message: Message(reply_to: None, ..), ..) -> {
-      io.println("end of stream")
+      request_and_loop(subject, state)
+    }
+
+    // When request is made with `NoWait` we get a message with status
+    // of `404` when no new messages exist.
+    Ok(ReceivedMessage(status: Some(404), ..)) -> {
+      io.println("no new messages")
+
       Ok(Nil)
     }
-    _ -> {
-      // Print message contents
+
+    // We got a new message!
+    Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
+      // Print message
       io.debug(msg)
-      // Ack message
-      let assert Ok(Nil) = jetstream.ack(msg.conn, msg.message)
-      // Run loop again
-      loop(subject, sub)
+
+      // Acknowledge message
+      let assert Ok(_) = jetstream.ack(conn, msg)
+
+      // Keep track of remaining messages in the request
+      case state.remaining <= 1 {
+        // Request more
+        True -> request_and_loop(subject, state)
+        // Decrement the counter
+        False -> loop(subject, State(..state, remaining: state.remaining - 1))
+      }
     }
+
+    // An error!
+    Error(err) -> Error(err)
   }
 }
 ```
@@ -196,11 +248,17 @@ fn loop(subject, sub: consumer.Subscription) {
 With push consumers messages are automatically published on a
 specified subject.
 
+This example is considerably simpler than the pull consumer above
+but keep in mind that with push consumers the flow of messages is
+harder to control.
+
+[More info on push consumers](https://www.byronruth.com/grokking-nats-consumers-part-1/)
+
 ```gleam
 import gleam/io
 import gleam/result
 import gleam/erlang/process.{Subject}
-import glats.{SubscriptionMessage}
+import glats.{ReceivedMessage, SubscriptionMessage}
 import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{
@@ -216,14 +274,15 @@ pub fn main() {
     stream.create(conn, "mystream", ["orders.>", "items.>"], [])
 
   // Publish 3 messages to subjects contained in the stream
-  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data")
-  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data")
+  let assert Ok(Nil) = glats.publish(conn, "orders.1", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "orders.2", "order_data", [])
+  let assert Ok(Nil) = glats.publish(conn, "items.1", "item_data", [])
 
-  // Subscribe to subject using a push consumer by first generating
-  // a random inbox for the push consumer.
-  let subject = process.new_subject()
+  // Generate a random inbox topic for the push consumer's delivery topic
   let inbox = glats.new_inbox()
+
+  // Subscribe to subject in the stream using an ephemeral consumer
+  let subject = process.new_subject()
   let assert Ok(_sub) =
     consumer.subscribe(
       conn,
@@ -244,18 +303,31 @@ pub fn main() {
     )
     |> io.debug
 
+  // Start loop
   loop(subject)
 }
 
 fn loop(subject: Subject(SubscriptionMessage)) {
-  let assert Ok(msg) = process.receive(subject, 2000)
+  case process.receive(subject, 2000) {
+    // New message received
+    Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
+      // Print message
+      io.debug(msg)
 
-  // Print message contents
-  io.debug(msg)
-  // Ack message
-  let assert Ok(Nil) = jetstream.ack(msg.conn, msg.message)
-  // Run loop again
-  loop(subject)
+      // Acknowledge message
+      let assert Ok(Nil) = jetstream.ack(conn, msg)
+
+      // Run loop again
+      loop(subject)
+    }
+
+    // Error!
+    Error(Nil) -> {
+      io.println("no new message in 2 seconds")
+
+      Ok(Nil)
+    }
+  }
 }
 ```
 
