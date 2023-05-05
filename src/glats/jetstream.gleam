@@ -1,3 +1,4 @@
+import gleam/int
 import glats.{Connection, Message}
 
 /// Errors that can be returned when working with Jetstream.
@@ -66,4 +67,16 @@ pub fn term(conn: Connection, message: Message) {
 ///
 pub fn nack(conn: Connection, message: Message) {
   glats.respond(conn, message, "-NAK", [])
+}
+
+/// Sends a negative acknowledgement for a message and delays
+/// redelivery of the message. The unit is in nanoseconds.
+///
+pub fn nack_delay(conn: Connection, message: Message, with delay: Int) {
+  glats.respond(
+    conn,
+    message,
+    "-NAK {\"delay\":" <> int.to_string(delay) <> "}",
+    [],
+  )
 }

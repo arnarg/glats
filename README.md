@@ -130,6 +130,9 @@ it when there is high load as is possible with push consumers.
 
 [More info on pull consumers](https://www.byronruth.com/grokking-nats-consumers-part-3/)
 
+All the logic in this example is handled for you in `glats/jetstream/handler.{handle_pull_consumer}`,
+see [docs](https://hexdocs.pm/glats/glats/jetstream/handler.html).
+
 ```gleam
 import gleam/io
 import gleam/string
