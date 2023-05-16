@@ -14,8 +14,8 @@ import glats
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
-  // Publish a single message to "some.subject".
-  assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
+  // Publish a single message to "some.topic".
+  let assert Ok(Nil) = glats.publish(conn, "some.topic", "hello world!", [])
 
   Ok(Nil)
 }
@@ -24,7 +24,6 @@ pub fn main() {
 ## Subscribe
 
 ```gleam
-import gleam/io
 import gleam/result
 import gleam/erlang/process
 import glats
@@ -34,27 +33,28 @@ pub fn main() {
 
   let subject = process.new_subject()
 
-  // Subscribe to "some.subject".
+  // Subscribe to "some.topic".
   // Messages will be delivered to the erlang subject passed in.
-  assert Ok(sid) = glats.subscribe(conn, subject, "some.subject")
+  let assert Ok(sid) = glats.subscribe(conn, subject, "some.topic", [])
 
-  // Publish a single message to "some.subject".
-  assert Ok(Nil) = glats.publish(conn, "some.subject", "hello world!")
+  // Publish a single message to "some.topic".
+  let assert Ok(Nil) = glats.publish(conn, "some.topic", "hello world!", [])
 
   // Receive from erlang subject.
-  assert Ok(glats.ReceivedMessage(
-    conn: _conn, // Reference to the conn used
-    sid: _sid,   // Subscription ID for the subscription
+  let assert Ok(glats.ReceivedMessage(
+    conn: _conn,
+    sid: _sid,
+    status: _status,
     message: glats.Message(
-      subject: _subject,   // "some.subject"
-      headers: _headers,   // empty map
-      reply_to: _reply_to, // None
-      body: _body,         // "hello world!"
-    )
+      topic: _topic,
+      headers: _headers,
+      reply_to: _reply_to,
+      body: _body,
+    ),
   )) = process.receive(subject, 1000)
 
   // Unsubscribe from the subscription.
-  assert Ok(Nil) = glats.unsubscribe(conn, sid)
+  let assert Ok(Nil) = glats.unsubscribe(conn, sid)
 
   Ok(Nil)
 }
@@ -63,6 +63,7 @@ pub fn main() {
 ## Request handler
 
 ```gleam
+import gleam/io
 import gleam/option.{None}
 import gleam/result
 import gleam/erlang/process
@@ -73,9 +74,9 @@ pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
   // Start a request handler actor that will call `ping_pong_handler`
-  // for every request received from NATS subject "do.ping".
-  assert Ok(_actor) =
-    handler.handle_request(conn, [], "do.ping", None, ping_pong_handler)
+  // for every request received from NATS topic "do.ping".
+  let assert Ok(_actor) =
+    handler.handle_request(conn, [], "do.ping", [], ping_pong_handler)
 
   process.sleep_forever()
 

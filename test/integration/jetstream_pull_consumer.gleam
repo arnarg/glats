@@ -93,7 +93,7 @@ fn loop(subject, state: State) {
       io.debug(msg)
 
       // Acknowledge message
-      let assert Ok(Nil) = jetstream.ack(conn, msg)
+      let assert Ok(_) = jetstream.ack(conn, msg)
 
       // Keep track of remaining messages in the request
       case state.remaining <= 1 {
