@@ -1,13 +1,12 @@
-import gleam/base
+import gleam/bit_array.{base64_decode}
 import gleam/result
 import gleam/string
 import gleam/list
-import gleam/map
-import gleam/bit_string
-import glats.{Error}
-import glats/jetstream.{JetstreamError}
+import gleam/dict
+import glats
+import glats/jetstream
 
-pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
+pub fn map_code_to_error(data: #(Int, String)) -> jetstream.JetstreamError {
   case data.0 {
     10_039 -> jetstream.JetstreamNotEnabledForAccount(data.1)
     10_076 -> jetstream.JetstreamNotEnabled(data.1)
@@ -29,8 +28,8 @@ pub fn map_code_to_error(data: #(Int, String)) -> JetstreamError {
 
 pub fn decode_b64_headers(hdrs: String) {
   use data <- result.then(
-    base.decode64(hdrs)
-    |> result.map(bit_string.to_string)
+    base64_decode(hdrs)
+    |> result.map(bit_array.to_string)
     |> result.flatten,
   )
 
@@ -41,7 +40,7 @@ pub fn decode_headers(hdrs: String) {
   hdrs
   |> string.split("\n")
   |> list.filter_map(decode_header)
-  |> map.from_list
+  |> dict.from_list
   |> Ok
 }
 
@@ -55,7 +54,9 @@ fn decode_header(line: String) {
   }
 }
 
-pub fn map_glats_error_to_jetstream(err: Error) -> JetstreamError {
+pub fn map_glats_error_to_jetstream(
+  err: glats.Error,
+) -> jetstream.JetstreamError {
   case err {
     glats.Timeout -> jetstream.Timeout
     glats.NoResponders -> jetstream.NoResponders

@@ -1,4 +1,4 @@
-import gleam/base
+import gleam/bit_array.{base64_encode}
 import gleam/crypto.{strong_random_bytes}
 
 pub fn random_inbox(prefix: String) {
@@ -12,5 +12,5 @@ pub fn random_inbox(prefix: String) {
 
 pub fn random_string(len: Int) {
   strong_random_bytes(len)
-  |> base.encode64(False)
+  |> base64_encode(False)
 }

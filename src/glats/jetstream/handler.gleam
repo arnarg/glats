@@ -93,15 +93,13 @@
 //// ```
 
 import gleam/string
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/function.{identity}
 import gleam/otp/actor
 import gleam/erlang/process.{Abnormal}
-import glats.{Connection, Message, ReceivedMessage, SubscriptionMessage}
+import glats
 import glats/jetstream
-import glats/jetstream/consumer.{
-  Batch, Expires, Subscription, SubscriptionOption,
-}
+import glats/jetstream/consumer
 
 const expires = 10_000
 
@@ -123,12 +121,12 @@ pub type Outcome(a) {
 /// The handler func that should be passed to the consumer handler.
 ///
 pub type SubscriptionHandler(a) =
-  fn(Message, a) -> Outcome(a)
+  fn(glats.Message, a) -> Outcome(a)
 
 type PullHandlerState(a) {
   PullHandlerState(
-    conn: Connection,
-    sub: Subscription,
+    conn: glats.Connection,
+    sub: consumer.Subscription,
     batch_size: Int,
     pending: Int,
     handler: SubscriptionHandler(a),
@@ -139,12 +137,12 @@ type PullHandlerState(a) {
 /// Start a pull consumer handler actor.
 ///
 pub fn handle_pull_consumer(
-  conn: Connection,
+  conn: glats.Connection,
   initial_state: a,
   topic: String,
   batch_size: Int,
   handler: SubscriptionHandler(a),
-  opts: List(SubscriptionOption),
+  opts: List(consumer.SubscriptionOption),
 ) {
   actor.start_spec(actor.Spec(
     init: fn() {
@@ -157,10 +155,10 @@ pub fn handle_pull_consumer(
         Ok(sub) -> {
           // Request initial batch
           case
-            consumer.request_batch(
-              sub,
-              [Batch(batch_size), Expires(expires * 1_000_000)],
-            )
+            consumer.request_batch(sub, [
+              consumer.Batch(batch_size),
+              consumer.Expires(expires * 1_000_000),
+            ])
           {
             Ok(Nil) ->
               actor.Ready(
@@ -188,29 +186,29 @@ pub fn handle_pull_consumer(
 
 fn request_more(state: PullHandlerState(a)) {
   case
-    consumer.request_batch(
-      state.sub,
-      [Batch(state.batch_size), Expires(expires * 1_000_000)],
-    )
+    consumer.request_batch(state.sub, [
+      consumer.Batch(state.batch_size),
+      consumer.Expires(expires * 1_000_000),
+    ])
   {
     Ok(Nil) ->
-      actor.Continue(PullHandlerState(..state, pending: state.batch_size))
+      actor.Continue(PullHandlerState(..state, pending: state.batch_size), None)
     Error(err) -> actor.Stop(Abnormal(string.inspect(err)))
   }
 }
 
-fn pull_loop(message: SubscriptionMessage, state: PullHandlerState(a)) {
+fn pull_loop(message: glats.SubscriptionMessage, state: PullHandlerState(a)) {
   case message {
     // Request expired.
-    ReceivedMessage(status: Some(408), ..) -> request_more(state)
+    glats.ReceivedMessage(status: Some(408), ..) -> request_more(state)
     // No new messages
-    ReceivedMessage(status: Some(404), ..) -> request_more(state)
+    glats.ReceivedMessage(status: Some(404), ..) -> request_more(state)
     // New message
-    ReceivedMessage(message: msg, ..) -> handle_pull_message(msg, state)
+    glats.ReceivedMessage(message: msg, ..) -> handle_pull_message(msg, state)
   }
 }
 
-fn handle_pull_message(message: Message, state: PullHandlerState(a)) {
+fn handle_pull_message(message: glats.Message, state: PullHandlerState(a)) {
   let inner = case state.handler(message, state.inner_state) {
     Ack(inner) -> {
       jetstream.ack(state.conn, message)
@@ -236,9 +234,11 @@ fn handle_pull_message(message: Message, state: PullHandlerState(a)) {
       actor.Continue(
         PullHandlerState(
           ..state,
-          pending: state.pending - 1,
+          pending: state.pending
+          - 1,
           inner_state: inner,
         ),
+        None,
       )
   }
 }

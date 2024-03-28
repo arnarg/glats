@@ -1,25 +1,25 @@
 import gleam/io
 import gleam/result
-import gleam/dynamic.{Dynamic}
-import gleam/map.{Map}
-import gleam/option.{None, Option, Some}
+import gleam/dynamic
+import gleam/dict
+import gleam/option.{None, Some}
 import gleam/list
 import gleam/otp/actor
-import gleam/erlang/atom.{Atom}
-import gleam/erlang/process.{Pid, Subject}
+import gleam/erlang/atom
+import gleam/erlang/process
 import glats/internal/util
-import glats/internal/subscription.{RawMessage}
+import glats/internal/subscription
 
 pub type Connection =
-  Subject(ConnectionMessage)
+  process.Subject(ConnectionMessage)
 
 /// A single message that can be received from or sent to NATS.
 ///
 pub type Message {
   Message(
     topic: String,
-    headers: Map(String, String),
-    reply_to: Option(String),
+    headers: dict.Dict(String, String),
+    reply_to: option.Option(String),
     body: String,
   )
 }
@@ -55,7 +55,7 @@ pub type ServerInfo {
     max_payload: Int,
     proto: Int,
     jetstream: Bool,
-    auth_required: Option(Bool),
+    auth_required: option.Option(Bool),
   )
 }
 
@@ -98,27 +98,27 @@ pub type Error {
 /// Message sent to a NATS connection process.
 pub opaque type ConnectionMessage {
   Subscribe(
-    from: Subject(Result(Int, Error)),
-    subscriber: Pid,
+    from: process.Subject(Result(Int, Error)),
+    subscriber: process.Pid,
     topic: String,
     opts: List(SubscribeOption),
   )
-  Unsubscribe(from: Subject(Result(Nil, Error)), sid: Int)
+  Unsubscribe(from: process.Subject(Result(Nil, Error)), sid: Int)
   Publish(
-    from: Subject(Result(Nil, Error)),
+    from: process.Subject(Result(Nil, Error)),
     topic: String,
     body: String,
     opts: List(PublishOption),
   )
   Request(
-    from: Subject(fn() -> Result(Message, Error)),
+    from: process.Subject(fn() -> Result(Message, Error)),
     topic: String,
     body: String,
     opts: List(PublishOption),
     timeout: Int,
   )
-  GetServerInfo(from: Subject(Result(ServerInfo, Error)))
-  GetActiveSubscriptions(from: Subject(Result(Int, Error)))
+  GetServerInfo(from: process.Subject(Result(ServerInfo, Error)))
+  GetActiveSubscriptions(from: process.Subject(Result(Int, Error)))
   Exited(process.ExitMessage)
 }
 
@@ -128,59 +128,68 @@ pub type SubscriptionMessage {
   ReceivedMessage(
     conn: Connection,
     sid: Int,
-    status: Option(Int),
+    status: option.Option(Int),
     message: Message,
   )
 }
 
 // State kept by the connection process.
 type State {
-  State(nats: Pid, subscribers: Map(Pid, Int))
+  State(nats: process.Pid, subscribers: dict.Dict(process.Pid, Int))
 }
 
 // Gnat's GenServer start_link.
-external fn gnat_start_link(
-  settings: Map(Atom, Dynamic),
-) -> actor.ErlangStartResult =
-  "Elixir.Gnat" "start_link"
+@external(erlang, "Elixir.Gnat", "start_link")
+fn gnat_start_link(
+  settings settings: dict.Dict(atom.Atom, dynamic.Dynamic),
+) -> actor.ErlangStartResult
 
 // Gnat's publish function.
-external fn gnat_pub(Pid, String, String, List(PublishOption)) -> Atom =
-  "Elixir.Gnat" "pub"
+@external(erlang, "Elixir.Gnat", "pub")
+fn gnat_pub(
+  a: process.Pid,
+  b: String,
+  c: String,
+  d: List(PublishOption),
+) -> atom.Atom
 
 // Gnat's request function.
-external fn gnat_request(
-  Pid,
-  String,
-  String,
-  List(#(Atom, Dynamic)),
-) -> Result(Dynamic, Atom) =
-  "Elixir.Gnat" "request"
+@external(erlang, "Elixir.Gnat", "request")
+fn gnat_request(
+  a: process.Pid,
+  b: String,
+  c: String,
+  d: List(#(atom.Atom, dynamic.Dynamic)),
+) -> Result(dynamic.Dynamic, atom.Atom)
 
 // Gnat's subscribe function.
-external fn gnat_sub(
-  Pid,
-  Pid,
-  String,
-  List(SubscribeOption),
-) -> Result(Int, String) =
-  "Elixir.Gnat" "sub"
+@external(erlang, "Elixir.Gnat", "sub")
+fn gnat_sub(
+  a: process.Pid,
+  b: process.Pid,
+  c: String,
+  d: List(SubscribeOption),
+) -> Result(Int, String)
 
 // Gnat's unsubscribe function.
-external fn gnat_unsub(Pid, Int, List(#(Atom, String))) -> Atom =
-  "Elixir.Gnat" "unsub"
+@external(erlang, "Elixir.Gnat", "unsub")
+fn gnat_unsub(
+  a: process.Pid,
+  b: Int,
+  c: List(#(atom.Atom, String)),
+) -> atom.Atom
 
 // Gnat's server_info function.
-external fn gnat_server_info(Pid) -> Dynamic =
-  "Elixir.Gnat" "server_info"
+@external(erlang, "Elixir.Gnat", "server_info")
+fn gnat_server_info(a: process.Pid) -> dynamic.Dynamic
 
 // Gnat's active_subscriptions function.
-external fn gnat_active_subscriptions(Pid) -> Result(Int, Dynamic) =
-  "Elixir.Gnat" "active_subscriptions"
+@external(erlang, "Elixir.Gnat", "active_subscriptions")
+fn gnat_active_subscriptions(a: process.Pid) -> Result(Int, dynamic.Dynamic)
 
 // ffi server info decoder
-external fn glats_decode_server_info(Dynamic) -> Result(ServerInfo, Error) =
-  "Elixir.Glats" "decode_server_info"
+@external(erlang, "Elixir.Glats", "decode_server_info")
+fn glats_decode_server_info(a: dynamic.Dynamic) -> Result(ServerInfo, Error)
 
 /// Starts an actor that handles a connection to NATS using the provided
 /// settings.
@@ -213,7 +222,7 @@ pub fn connect(host: String, port: Int, opts: List(ConnectionOption)) {
       // Start linked process using Gnat's start_link
       case gnat_start_link(build_settings(host, port, opts)) {
         Ok(pid) ->
-          actor.Ready(State(nats: pid, subscribers: map.new()), selector)
+          actor.Ready(State(nats: pid, subscribers: dict.new()), selector)
         Error(_) -> actor.Failed("starting connection failed")
       }
     },
@@ -233,19 +242,20 @@ fn handle_command(message: ConnectionMessage, state: State) {
         // Exited process is something else so we check if it's
         // in the map of subscribers and unsubscribe it.
         False ->
-          case map.get(state.subscribers, em.pid) {
+          case dict.get(state.subscribers, em.pid) {
             Ok(sid) -> {
               gnat_unsub(state.nats, sid, [])
               actor.Continue(
                 State(
                   ..state,
-                  subscribers: map.delete(state.subscribers, em.pid),
+                  subscribers: dict.delete(state.subscribers, em.pid),
                 ),
+                None,
               )
             }
             Error(Nil) -> {
               io.println("exited process not found in map of subscribers")
-              actor.Continue(state)
+              actor.Continue(state, None)
             }
           }
       }
@@ -258,7 +268,6 @@ fn handle_command(message: ConnectionMessage, state: State) {
     Unsubscribe(from, sid) -> handle_unsubscribe(from, sid, state)
     GetServerInfo(from) -> handle_server_info(from, state)
     GetActiveSubscriptions(from) -> handle_active_subscriptions(from, state)
-    _ -> actor.Continue(state)
   }
 }
 
@@ -270,7 +279,7 @@ fn handle_server_info(from, state: State) {
   |> result.map_error(fn(_) { Unexpected })
   |> process.send(from, _)
 
-  actor.Continue(state)
+  actor.Continue(state, None)
 }
 
 // Handles a single active subscriptions command.
@@ -280,7 +289,7 @@ fn handle_active_subscriptions(from, state: State) {
   |> result.map_error(fn(_) { Unexpected })
   |> process.send(from, _)
 
-  actor.Continue(state)
+  actor.Continue(state, None)
 }
 
 // Handles a single publish command.
@@ -299,7 +308,7 @@ fn handle_publish(
     "ok" -> process.send(from, Ok(Nil))
     _ -> process.send(from, Error(Unexpected))
   }
-  actor.Continue(state)
+  actor.Continue(state, None)
 }
 
 // Handles a single request command.
@@ -308,7 +317,7 @@ fn handle_request(
   from,
   topic: String,
   body: String,
-  opts: List(PublishOption),
+  _opts: List(PublishOption),
   timeout: Int,
   state: State,
 ) {
@@ -334,7 +343,7 @@ fn handle_request(
 
   process.send(from, req_func)
 
-  actor.Continue(state)
+  actor.Continue(state, None)
 }
 
 // Handles a single unsubscribe command.
@@ -347,14 +356,14 @@ fn handle_unsubscribe(from, sid, state: State) {
     "ok" -> process.send(from, Ok(Nil))
     _ -> process.send(from, Error(Unexpected))
   }
-  actor.Continue(state)
+  actor.Continue(state, None)
 }
 
 // Handles a single subscribe command.
 //
 fn handle_subscribe(
   from,
-  subscriber: Pid,
+  subscriber: process.Pid,
   topic: String,
   opts: List(SubscribeOption),
   state: State,
@@ -368,21 +377,22 @@ fn handle_subscribe(
           actor.Continue(
             State(
               ..state,
-              subscribers: map.insert(state.subscribers, subscriber, sid),
+              subscribers: dict.insert(state.subscribers, subscriber, sid),
             ),
+            None,
           )
         }
         False -> {
           // TODO: unsub
           process.send(from, Error(Unexpected))
 
-          actor.Continue(state)
+          actor.Continue(state, None)
         }
       }
     Error(_) -> {
       process.send(from, Error(Unexpected))
 
-      actor.Continue(state)
+      actor.Continue(state, None)
     }
   }
 }
@@ -413,7 +423,7 @@ pub fn publish(
 /// record.
 ///
 pub fn publish_message(conn: Connection, message: Message) {
-  [Headers(map.to_list(message.headers))]
+  [Headers(dict.to_list(message.headers))]
   |> take_reply_topic(message)
   |> publish(conn, message.topic, message.body, _)
 }
@@ -465,7 +475,7 @@ pub fn respond(
 
 fn subscription_mapper(
   conn: Connection,
-  raw_msg: RawMessage,
+  raw_msg: subscription.RawMessage,
 ) -> SubscriptionMessage {
   ReceivedMessage(
     conn: conn,
@@ -495,7 +505,7 @@ fn subscription_mapper(
 ///
 pub fn subscribe(
   conn: Connection,
-  subscriber: Subject(SubscriptionMessage),
+  subscriber: process.Subject(SubscriptionMessage),
   topic: String,
   opts: List(SubscribeOption),
 ) {
@@ -507,7 +517,7 @@ pub fn subscribe(
           Subscribe(
             _,
             sub
-            |> process.subject_owner,
+              |> process.subject_owner,
             topic,
             opts,
           ),
@@ -581,64 +591,67 @@ fn build_settings(
   host: String,
   port: Int,
   opts: List(ConnectionOption),
-) -> Map(Atom, Dynamic) {
+) -> dict.Dict(atom.Atom, dynamic.Dynamic) {
   [#("host", dynamic.from(host)), #("port", dynamic.from(port))]
-  |> map.from_list
+  |> dict.from_list
   |> list.fold(opts, _, apply_conn_option)
   |> add_ssl_opts
-  |> map.take([
+  |> dict.take([
     "host", "port", "tls", "ssl_opts", "inbox_prefix", "connection_timeout",
     "no_responders", "username", "password", "token", "nkey_seed", "jwt",
   ])
-  |> map.to_list
+  |> dict.to_list
   |> list.map(fn(i) { #(atom.create_from_string(i.0), i.1) })
-  |> map.from_list
+  |> dict.from_list
 }
 
-fn apply_conn_option(prev: Map(String, Dynamic), opt: ConnectionOption) {
+fn apply_conn_option(
+  prev: dict.Dict(String, dynamic.Dynamic),
+  opt: ConnectionOption,
+) {
   case opt {
     UserPass(user, pass) ->
       prev
-      |> map.insert("username", dynamic.from(user))
-      |> map.insert("password", dynamic.from(pass))
+      |> dict.insert("username", dynamic.from(user))
+      |> dict.insert("password", dynamic.from(pass))
     Token(token) ->
       prev
-      |> map.insert("token", dynamic.from(token))
+      |> dict.insert("token", dynamic.from(token))
     NKeySeed(seed) ->
       prev
-      |> map.insert("nkey_seed", dynamic.from(seed))
+      |> dict.insert("nkey_seed", dynamic.from(seed))
     JWT(jwt) ->
       prev
-      |> map.insert("jwt", dynamic.from(jwt))
+      |> dict.insert("jwt", dynamic.from(jwt))
     CACert(path) ->
       prev
-      |> map.insert("tls", dynamic.from(True))
-      |> map.insert("cacertfile", dynamic.from(path))
+      |> dict.insert("tls", dynamic.from(True))
+      |> dict.insert("cacertfile", dynamic.from(path))
     ClientCert(cert, key) ->
       prev
-      |> map.insert("tls", dynamic.from(True))
-      |> map.insert("certfile", dynamic.from(cert))
-      |> map.insert("keyfile", dynamic.from(key))
+      |> dict.insert("tls", dynamic.from(True))
+      |> dict.insert("certfile", dynamic.from(cert))
+      |> dict.insert("keyfile", dynamic.from(key))
     InboxPrefix(prefix) ->
-      map.insert(prev, "inbox_prefix", dynamic.from(prefix))
+      dict.insert(prev, "inbox_prefix", dynamic.from(prefix))
     ConnectionTimeout(timeout) ->
-      map.insert(prev, "connection_timeout", dynamic.from(timeout))
-    EnableNoResponders -> map.insert(prev, "no_responders", dynamic.from(True))
+      dict.insert(prev, "connection_timeout", dynamic.from(timeout))
+    EnableNoResponders -> dict.insert(prev, "no_responders", dynamic.from(True))
   }
 }
 
-fn add_ssl_opts(prev: Map(String, Dynamic)) {
-  map.take(prev, ["cacertfile", "certfile", "keyfile"])
-  |> map.to_list
+fn add_ssl_opts(prev: dict.Dict(String, dynamic.Dynamic)) {
+  dict.take(prev, ["cacertfile", "certfile", "keyfile"])
+  |> dict.to_list
   |> list.map(fn(o) { #(atom.create_from_string(o.0), o.1) })
   |> dynamic.from
-  |> map.insert(prev, "ssl_opts", _)
+  |> dict.insert(prev, "ssl_opts", _)
 }
 
 // Decode Gnat message
 
 // Decodes a message map returned by NATS
-fn decode_msg(data: Dynamic) {
+fn decode_msg(data: dynamic.Dynamic) {
   data
   |> dynamic.decode4(
     Message,
@@ -652,19 +665,19 @@ fn decode_msg(data: Dynamic) {
 // Decodes headers from a map with message data.
 // If the key is absent (which happens when no headers are sent)
 // an empty map is returned.
-fn headers(data: Dynamic) {
+fn headers(data: dynamic.Dynamic) {
   data
   |> atom_field(
     "headers",
     dynamic.list(dynamic.tuple2(dynamic.string, dynamic.string)),
   )
-  |> result.map(map.from_list)
-  |> result.or(Ok(map.new()))
+  |> result.map(dict.from_list)
+  |> result.or(Ok(dict.new()))
 }
 
-// Decodes reply_to from a map with message data into Option(String).
+// Decodes reply_to from a map with message data into option.Option(String).
 // If reply_to is `Nil` None is returned.
-fn reply_to(data: Dynamic) {
+fn reply_to(data: dynamic.Dynamic) {
   data
   |> dynamic.optional(atom_field("reply_to", dynamic.string))
   |> result.or(Ok(None))

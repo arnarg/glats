@@ -9,13 +9,13 @@ import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{
   AckExplicit, AckPolicy, Batch, BindStream, Description, InactiveThreshold,
-  NoWait, Subscription, With,
+  NoWait, With,
 }
 
 const batch_size = 50
 
 type State {
-  State(sub: Subscription, remaining: Int)
+  State(sub: consumer.Subscription, remaining: Int)
 }
 
 pub fn main() {
@@ -33,21 +33,16 @@ pub fn main() {
   // Subscribe to subject in the stream using an ephemeral consumer
   let subject = process.new_subject()
   let assert Ok(sub) =
-    consumer.subscribe(
-      conn,
-      subject,
-      "orders.*",
-      [
-        // Bind to stream created above
-        BindStream(stream.config.name),
-        // Set description for the ephemeral consumer
-        With(Description("An ephemeral consumer for subscription")),
-        // Set ack policy for the consumer
-        With(AckPolicy(AckExplicit)),
-        // Sets the inactive threshold of the ephemeral consumer
-        With(InactiveThreshold(60_000_000_000)),
-      ],
-    )
+    consumer.subscribe(conn, subject, "orders.*", [
+      // Bind to stream created above
+      BindStream(stream.config.name),
+      // Set description for the ephemeral consumer
+      With(Description("An ephemeral consumer for subscription")),
+      // Set ack policy for the consumer
+      With(AckPolicy(AckExplicit)),
+      // Sets the inactive threshold of the ephemeral consumer
+      With(InactiveThreshold(60_000_000_000)),
+    ])
     |> io.debug
 
   // Start loop

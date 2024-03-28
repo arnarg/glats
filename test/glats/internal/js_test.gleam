@@ -1,5 +1,5 @@
 import gleeunit/should
-import gleam/map
+import gleam/dict
 import glats/jetstream
 import glats/internal/js
 
@@ -23,6 +23,6 @@ pub fn decode_headers_test() {
   |> js.decode_headers
   |> should.equal(Ok(
     [#("some", "header"), #("another", "one")]
-    |> map.from_list,
+    |> dict.from_list,
   ))
 }

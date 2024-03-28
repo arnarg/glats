@@ -51,24 +51,26 @@
 ////
 
 import gleam/string
-import gleam/map.{Map}
-import gleam/option.{None, Option, Some}
+import gleam/dict
+import gleam/option.{None, Some}
 import gleam/erlang/process
 import gleam/otp/actor
-import glats.{
-  Connection, Message, ReceivedMessage, SubscribeOption, SubscriptionMessage,
-}
+import glats
 
 /// The message data received from the request handler's topic.
 ///
 pub type Request {
-  Request(headers: Map(String, String), body: String)
+  Request(headers: dict.Dict(String, String), body: String)
 }
 
 /// The message data that should be replied to the requester.
 ///
 pub type Response {
-  Response(headers: Map(String, String), reply_to: Option(String), body: String)
+  Response(
+    headers: dict.Dict(String, String),
+    reply_to: option.Option(String),
+    body: String,
+  )
 }
 
 /// Next step for the request handler to do.
@@ -90,7 +92,7 @@ pub type RequestHandler(a) =
 
 type RequestHandlerState(a) {
   RequestHandlerState(
-    conn: Connection,
+    conn: glats.Connection,
     sid: Int,
     handler: RequestHandler(a),
     inner: a,
@@ -102,10 +104,10 @@ type RequestHandlerState(a) {
 /// the returned message data from the request handler.
 ///
 pub fn handle_request(
-  conn: Connection,
+  conn: glats.Connection,
   state: a,
   topic: String,
-  opts: List(SubscribeOption),
+  opts: List(glats.SubscribeOption),
   handler: RequestHandler(a),
 ) {
   actor.start_spec(actor.Spec(
@@ -127,18 +129,18 @@ pub fn handle_request(
 }
 
 fn request_handler_loop(
-  message: SubscriptionMessage,
+  message: glats.SubscriptionMessage,
   state: RequestHandlerState(a),
 ) {
   case message {
-    ReceivedMessage(conn, _, _, msg) -> request_handler_msg(conn, msg, state)
-    _ -> actor.Continue(state)
+    glats.ReceivedMessage(conn, _, _, msg) ->
+      request_handler_msg(conn, msg, state)
   }
 }
 
 fn request_handler_msg(
-  conn: Connection,
-  msg: Message,
+  conn: glats.Connection,
+  msg: glats.Message,
   state: RequestHandlerState(a),
 ) {
   case msg.reply_to {
@@ -150,7 +152,7 @@ fn request_handler_msg(
           let pub_res =
             glats.publish_message(
               conn,
-              Message(
+              glats.Message(
                 topic: reply_to,
                 headers: res.headers,
                 reply_to: res.reply_to,
@@ -160,7 +162,10 @@ fn request_handler_msg(
 
           case pub_res {
             Ok(Nil) ->
-              actor.Continue(RequestHandlerState(..state, inner: new_inner))
+              actor.Continue(
+                RequestHandlerState(..state, inner: new_inner),
+                None,
+              )
             Error(err) -> actor.Stop(process.Abnormal(string.inspect(err)))
           }
         }
@@ -168,6 +173,6 @@ fn request_handler_msg(
         Stop(reason) -> actor.Stop(reason)
       }
     }
-    None -> actor.Continue(state)
+    None -> actor.Continue(state, None)
   }
 }

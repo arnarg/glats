@@ -1,5 +1,5 @@
 import gleam/int
-import glats.{Connection, Message}
+import glats
 
 /// Errors that can be returned when working with Jetstream.
 ///
@@ -48,7 +48,7 @@ pub type StorageType {
 
 /// Sends an acknowledgement for a message.
 ///
-pub fn ack(conn: Connection, message: Message) {
+pub fn ack(conn: glats.Connection, message: glats.Message) {
   glats.respond(conn, message, "", [])
 }
 
@@ -57,7 +57,7 @@ pub fn ack(conn: Connection, message: Message) {
 /// Instructs the server to stop redelivery of a message without acknowledging
 /// it as successfully processed.
 ///
-pub fn term(conn: Connection, message: Message) {
+pub fn term(conn: glats.Connection, message: glats.Message) {
   glats.respond(conn, message, "+TERM", [])
 }
 
@@ -65,14 +65,18 @@ pub fn term(conn: Connection, message: Message) {
 ///
 /// Delivery will be retried until ack'd or term'd.
 ///
-pub fn nack(conn: Connection, message: Message) {
+pub fn nack(conn: glats.Connection, message: glats.Message) {
   glats.respond(conn, message, "-NAK", [])
 }
 
 /// Sends a negative acknowledgement for a message and delays
 /// redelivery of the message. The unit is in nanoseconds.
 ///
-pub fn nack_delay(conn: Connection, message: Message, with delay: Int) {
+pub fn nack_delay(
+  conn: glats.Connection,
+  message: glats.Message,
+  with delay: Int,
+) {
   glats.respond(
     conn,
     message,

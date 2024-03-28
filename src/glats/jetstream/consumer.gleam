@@ -1,13 +1,13 @@
 import gleam/string
-import gleam/map.{Map}
-import gleam/dynamic.{Dynamic}
-import gleam/option.{None, Option, Some}
+import gleam/dict
+import gleam/dynamic
+import gleam/option.{None, Some}
 import gleam/list
 import gleam/result
-import gleam/json.{Json}
-import gleam/erlang/process.{Subject}
-import glats.{Connection, Message, QueueGroup, SubscriptionMessage}
-import glats/jetstream.{JetstreamError}
+import gleam/json
+import gleam/erlang/process
+import glats
+import glats/jetstream
 import glats/jetstream/stream
 import glats/internal/js
 import glats/internal/util
@@ -30,13 +30,13 @@ pub type SubscriptionOption {
 ///
 pub opaque type Subscription {
   PullSubscription(
-    conn: Connection,
+    conn: glats.Connection,
     sid: Int,
     stream: String,
     consumer: String,
     inbox: String,
   )
-  PushSubscription(conn: Connection, sid: Int)
+  PushSubscription(conn: glats.Connection, sid: Int)
 }
 
 /// Available options to set during consumer creation and update.
@@ -194,21 +194,21 @@ pub type ConsumerInfo {
 ///
 pub type ConsumerConfig {
   ConsumerConfig(
-    durable_name: Option(String),
-    description: Option(String),
-    filter_subject: Option(String),
+    durable_name: option.Option(String),
+    description: option.Option(String),
+    filter_subject: option.Option(String),
     ack_policy: AckPolicy,
-    ack_wait: Option(Int),
+    ack_wait: option.Option(Int),
     deliver_policy: DeliverPolicy,
-    inactive_threshold: Option(Int),
-    max_ack_pending: Option(Int),
-    max_deliver: Option(Int),
+    inactive_threshold: option.Option(Int),
+    max_ack_pending: option.Option(Int),
+    max_deliver: option.Option(Int),
     replay_policy: ReplayPolicy,
-    num_replicas: Option(Int),
-    sample_freq: Option(String),
-    deliver_subject: Option(String),
-    deliver_group: Option(String),
-    headers_only: Option(Bool),
+    num_replicas: option.Option(Int),
+    sample_freq: option.Option(String),
+    deliver_subject: option.Option(String),
+    deliver_group: option.Option(String),
+    headers_only: option.Option(Bool),
   )
 }
 
@@ -223,10 +223,10 @@ pub type SequenceInfo {
 /// Get info about a consumer by stream and name.
 ///
 pub fn info(
-  conn: Connection,
+  conn: glats.Connection,
   stream: String,
   name: String,
-) -> Result(ConsumerInfo, JetstreamError) {
+) -> Result(ConsumerInfo, jetstream.JetstreamError) {
   let topic = consumer_prefix <> ".INFO." <> stream <> "." <> name
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -236,13 +236,13 @@ pub fn info(
   }
 }
 
-external fn decode_consumer_info_data(
-  data: Map(String, Dynamic),
-) -> Result(ConsumerInfo, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_consumer_info_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_consumer_info_data")
+fn decode_consumer_info_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(ConsumerInfo, #(Int, String))
 
 fn decode_info(body: String) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_consumer_info_data)
@@ -257,23 +257,24 @@ fn decode_info(body: String) {
 
 /// Creates a new consumer
 ///
-pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
+pub fn create(
+  conn: glats.Connection,
+  stream: String,
+  opts: List(ConsumerOption),
+) {
   let durable_name =
-    list.find(
-      opts,
-      fn(o) {
-        case o {
-          DurableName(_) -> True
-          _ -> False
-        }
-      },
-    )
+    list.find(opts, fn(o) {
+      case o {
+        DurableName(_) -> True
+        _ -> False
+      }
+    })
 
   // Check if opts include durable name.
   let topic = case durable_name {
     Ok(DurableName(name)) ->
       consumer_prefix <> ".CREATE." <> stream <> "." <> name
-    Error(Nil) -> consumer_prefix <> ".CREATE." <> stream
+    Error(Nil) | Ok(_) -> consumer_prefix <> ".CREATE." <> stream
   }
 
   let body = consumer_options_to_json(stream, opts)
@@ -291,7 +292,7 @@ pub fn create(conn: Connection, stream: String, opts: List(ConsumerOption)) {
 
 /// Deletes a consumer
 ///
-pub fn delete(conn: Connection, stream: String, name: String) {
+pub fn delete(conn: glats.Connection, stream: String, name: String) {
   let topic = consumer_prefix <> ".DELETE." <> stream <> "." <> name
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -301,13 +302,13 @@ pub fn delete(conn: Connection, stream: String, name: String) {
   }
 }
 
-external fn decode_delete_data(
-  data: Map(String, Dynamic),
-) -> Result(Nil, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_delete_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_delete_data")
+fn decode_delete_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(Nil, #(Int, String))
 
-fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_delete_data)
@@ -322,7 +323,7 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 
 /// Get list of consumer names in a stream.
 ///
-pub fn names(conn: Connection, stream: String) {
+pub fn names(conn: glats.Connection, stream: String) {
   let topic = consumer_prefix <> ".NAMES." <> stream
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -332,13 +333,13 @@ pub fn names(conn: Connection, stream: String) {
   }
 }
 
-external fn decode_consumer_names_data(
-  data: Map(String, Dynamic),
-) -> Result(Nil, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_consumer_names_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_consumer_names_data")
+fn decode_consumer_names_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(Nil, #(Int, String))
 
-fn decode_names(body: String) -> Result(Nil, JetstreamError) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+fn decode_names(body: String) -> Result(Nil, jetstream.JetstreamError) {
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_consumer_names_data)
@@ -376,7 +377,7 @@ pub fn request_batch(sub: Subscription, opts: List(RequestBatchOption)) {
 }
 
 fn do_req_next_msg(
-  conn: Connection,
+  conn: glats.Connection,
   stream: String,
   consumer: String,
   inbox: String,
@@ -389,9 +390,9 @@ fn do_req_next_msg(
 
   glats.publish_message(
     conn,
-    Message(
+    glats.Message(
       topic: topic,
-      headers: map.new(),
+      headers: dict.new(),
       reply_to: Some(reply_to),
       body: make_req_body(opts),
     ),
@@ -401,18 +402,18 @@ fn do_req_next_msg(
 
 fn make_req_body(opts: List(RequestBatchOption)) {
   [#("batch", json.int(1))]
-  |> map.from_list
+  |> dict.from_list
   |> list.fold(opts, _, apply_req_opt)
-  |> map.to_list
+  |> dict.to_list
   |> json.object
   |> json.to_string
 }
 
-fn apply_req_opt(prev: Map(String, Json), opt: RequestBatchOption) {
+fn apply_req_opt(prev: dict.Dict(String, json.Json), opt: RequestBatchOption) {
   case opt {
-    Batch(size) -> map.insert(prev, "batch", json.int(size))
-    Expires(time) -> map.insert(prev, "expires", json.int(time))
-    NoWait -> map.insert(prev, "no_wait", json.bool(True))
+    Batch(size) -> dict.insert(prev, "batch", json.int(size))
+    Expires(time) -> dict.insert(prev, "expires", json.int(time))
+    NoWait -> dict.insert(prev, "no_wait", json.bool(True))
   }
 }
 
@@ -436,8 +437,8 @@ fn apply_req_opt(prev: Map(String, Json), opt: RequestBatchOption) {
 /// `With(ConsumerOption)` can be provided to configure it.
 ///
 pub fn subscribe(
-  conn: Connection,
-  subscriber: Subject(SubscriptionMessage),
+  conn: glats.Connection,
+  subscriber: process.Subject(glats.SubscriptionMessage),
   topic: String,
   opts: List(SubscriptionOption),
 ) {
@@ -452,8 +453,8 @@ pub fn subscribe(
 }
 
 fn pull_subscribe(
-  conn: Connection,
-  subscriber: Subject(SubscriptionMessage),
+  conn: glats.Connection,
+  subscriber: process.Subject(glats.SubscriptionMessage),
   stream: String,
   consumer: String,
 ) {
@@ -469,10 +470,10 @@ fn pull_subscribe(
 }
 
 fn push_subscribe(
-  conn: Connection,
-  subscriber: Subject(SubscriptionMessage),
+  conn: glats.Connection,
+  subscriber: process.Subject(glats.SubscriptionMessage),
   topic: String,
-  group: Option(String),
+  group: option.Option(String),
 ) {
   // Subscribe to the deliver topic of the push consumer
   glats.subscribe(
@@ -480,8 +481,8 @@ fn push_subscribe(
     subscriber,
     topic,
     group
-    |> option.map(fn(gr) { [QueueGroup(gr)] })
-    |> option.unwrap([]),
+      |> option.map(fn(gr) { [glats.QueueGroup(gr)] })
+      |> option.unwrap([]),
   )
   |> result.map(PushSubscription(conn, _))
   |> result.map_error(fn(_) {
@@ -489,18 +490,19 @@ fn push_subscribe(
   })
 }
 
-fn find_stream(conn: Connection, topic: String, opts: List(SubscriptionOption)) {
+fn find_stream(
+  conn: glats.Connection,
+  topic: String,
+  opts: List(SubscriptionOption),
+) {
   let stream =
-    list.find_map(
-      opts,
-      fn(opt) {
-        case opt {
-          Bind(stream, _) -> Ok(stream)
-          BindStream(stream) -> Ok(stream)
-          _ -> Error(Nil)
-        }
-      },
-    )
+    list.find_map(opts, fn(opt) {
+      case opt {
+        Bind(stream, _) -> Ok(stream)
+        BindStream(stream) -> Ok(stream)
+        _ -> Error(Nil)
+      }
+    })
 
   case stream {
     Ok(stream) -> Ok(stream)
@@ -509,49 +511,40 @@ fn find_stream(conn: Connection, topic: String, opts: List(SubscriptionOption)) 
 }
 
 fn find_consumer(
-  conn: Connection,
+  conn: glats.Connection,
   stream: String,
   topic: String,
   opts: List(SubscriptionOption),
 ) {
   let consumer =
-    list.find_map(
-      opts,
-      fn(opt) {
-        case opt {
-          Bind(_, consumer) -> Ok(consumer)
-          _ -> Error(Nil)
-        }
-      },
-    )
+    list.find_map(opts, fn(opt) {
+      case opt {
+        Bind(_, consumer) -> Ok(consumer)
+        _ -> Error(Nil)
+      }
+    })
 
   case consumer {
     Ok(consumer) -> info(conn, stream, consumer)
     Error(Nil) ->
-      list.filter_map(
-        opts,
-        fn(opt) {
-          case opt {
-            With(o) -> Ok(o)
-            _ -> Error(Nil)
-          }
-        },
-      )
+      list.filter_map(opts, fn(opt) {
+        case opt {
+          With(o) -> Ok(o)
+          _ -> Error(Nil)
+        }
+      })
       |> ensure_consumer(conn, stream, topic, _)
   }
 }
 
 fn ensure_consumer(conn, stream, topic: String, opts: List(ConsumerOption)) {
   let opts = case
-    list.find(
-      opts,
-      fn(opt) {
-        case opt {
-          FilterSubject(_) -> True
-          _ -> False
-        }
-      },
-    )
+    list.find(opts, fn(opt) {
+      case opt {
+        FilterSubject(_) -> True
+        _ -> False
+      }
+    })
   {
     Ok(_) -> opts
     Error(Nil) ->
@@ -573,7 +566,7 @@ fn consumer_options_to_json(stream: String, opts: List(ConsumerOption)) {
     #(
       "config",
       apply_consumer_options([], opts)
-      |> json.object,
+        |> json.object,
     ),
   ]
   |> json.object
@@ -581,13 +574,13 @@ fn consumer_options_to_json(stream: String, opts: List(ConsumerOption)) {
 }
 
 fn apply_consumer_options(
-  prev: List(#(String, Json)),
+  prev: List(#(String, json.Json)),
   opts: List(ConsumerOption),
 ) {
   list.fold(opts, prev, apply_consumer_option)
 }
 
-fn apply_consumer_option(prev: List(#(String, Json)), opt: ConsumerOption) {
+fn apply_consumer_option(prev: List(#(String, json.Json)), opt: ConsumerOption) {
   // DeliverPolicy is kind of special as it will contain extra keys within
   // in certain cases (`DeliverByStartSequence(Int)` and `DeliverByStartTime(String)`)
   // so we need to handle that differently than the rest.
@@ -600,14 +593,14 @@ fn apply_consumer_option(prev: List(#(String, Json)), opt: ConsumerOption) {
       #(
         "ack_policy",
         ack_pol_to_string(pol)
-        |> json.string,
+          |> json.string,
       )
       |> list.prepend(prev, _)
     ReplayPolicy(pol) ->
       #(
         "replay_policy",
         replay_pol_to_string(pol)
-        |> json.string,
+          |> json.string,
       )
       |> list.prepend(prev, _)
     DurableName(name) ->

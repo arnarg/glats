@@ -9,12 +9,10 @@ pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
 
   let assert Ok(created) =
-    stream.create(
-      conn,
-      "mystream",
-      ["orders.>", "items.>"],
-      [Storage(MemoryStorage), Retention(WorkQueuePolicy)],
-    )
+    stream.create(conn, "mystream", ["orders.>", "items.>"], [
+      Storage(MemoryStorage),
+      Retention(WorkQueuePolicy),
+    ])
 
   let assert Ok(info) = stream.info(conn, created.config.name)
 

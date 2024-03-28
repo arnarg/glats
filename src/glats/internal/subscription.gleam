@@ -1,23 +1,23 @@
 import gleam/io
 import gleam/int
 import gleam/string
-import gleam/map.{Map}
-import gleam/option.{None, Option, Some}
-import gleam/dynamic.{Dynamic}
+import gleam/dict
+import gleam/option.{None, Some}
+import gleam/dynamic
 import gleam/result
 import gleam/function.{constant}
 import gleam/erlang/atom
-import gleam/erlang/process.{Subject}
+import gleam/erlang/process
 import gleam/otp/actor
 
 /// Raw message received from Gnat.
 pub type RawMessage {
   RawMessage(
     sid: Int,
-    status: Option(Int),
+    status: option.Option(Int),
     topic: String,
-    headers: Map(String, String),
-    reply_to: Option(String),
+    headers: dict.Dict(String, String),
+    reply_to: option.Option(String),
     body: String,
   )
 }
@@ -26,16 +26,20 @@ pub type MapperFunc(a, b) =
   fn(a, RawMessage) -> b
 
 type State(a, b) {
-  State(conn: a, receiver: Subject(b), mapper: MapperFunc(a, b))
+  State(conn: a, receiver: process.Subject(b), mapper: MapperFunc(a, b))
 }
 
 pub opaque type Message {
   ReceivedMessage(RawMessage)
-  DecodeError(Dynamic)
+  DecodeError(dynamic.Dynamic)
   SubscriberExited
 }
 
-pub fn start_subscriber(conn: a, receiver: Subject(b), mapper: MapperFunc(a, b)) {
+pub fn start_subscriber(
+  conn: a,
+  receiver: process.Subject(b),
+  mapper: MapperFunc(a, b),
+) {
   actor.start_spec(actor.Spec(
     init: fn() {
       // Monitor subscriber process.
@@ -60,7 +64,7 @@ pub fn start_subscriber(conn: a, receiver: Subject(b), mapper: MapperFunc(a, b))
   ))
 }
 
-fn map_gnat_message(data: Dynamic) -> Message {
+fn map_gnat_message(data: dynamic.Dynamic) -> Message {
   data
   |> decode_raw_msg
   |> result.map(ReceivedMessage)
@@ -71,11 +75,11 @@ fn loop(message: Message, state: State(a, b)) {
   case message {
     ReceivedMessage(raw_msg) -> {
       actor.send(state.receiver, state.mapper(state.conn, raw_msg))
-      actor.Continue(state)
+      actor.Continue(state, None)
     }
     DecodeError(data) -> {
       io.println("failed to decode: " <> string.inspect(data))
-      actor.Continue(state)
+      actor.Continue(state, None)
     }
     SubscriberExited -> {
       io.println("subscriber exited")
@@ -87,7 +91,7 @@ fn loop(message: Message, state: State(a, b)) {
 // Decode Gnat message
 
 // Decodes a message map returned by NATS
-pub fn decode_raw_msg(data: Dynamic) {
+pub fn decode_raw_msg(data: dynamic.Dynamic) {
   data
   |> dynamic.decode6(
     RawMessage,
@@ -101,14 +105,14 @@ pub fn decode_raw_msg(data: Dynamic) {
 }
 
 // Decodes sid with default value of -1 if not found.
-fn sid(data: Dynamic) {
+fn sid(data: dynamic.Dynamic) {
   data
   |> atom_field("sid", dynamic.int)
   |> result.or(Ok(-1))
 }
 
 // Decodes status with default value of -1 if not found.
-fn status(data: Dynamic) {
+fn status(data: dynamic.Dynamic) {
   data
   |> atom_field("status", dynamic.string)
   |> result.map(fn(s) {
@@ -122,19 +126,19 @@ fn status(data: Dynamic) {
 // Decodes headers from a map with message data.
 // If the key is absent (which happens when no headers are sent)
 // an empty map is returned.
-fn headers(data: Dynamic) {
+fn headers(data: dynamic.Dynamic) {
   data
   |> atom_field(
     "headers",
     dynamic.list(dynamic.tuple2(dynamic.string, dynamic.string)),
   )
-  |> result.map(map.from_list)
-  |> result.or(Ok(map.new()))
+  |> result.map(dict.from_list)
+  |> result.or(Ok(dict.new()))
 }
 
-// Decodes reply_to from a map with message data into Option(String).
+// Decodes reply_to from a map with message data into option.Option(String).
 // If reply_to is `Nil` None is returned.
-fn reply_to(data: Dynamic) {
+fn reply_to(data: dynamic.Dynamic) {
   data
   |> dynamic.optional(atom_field("reply_to", dynamic.string))
   |> result.or(Ok(None))

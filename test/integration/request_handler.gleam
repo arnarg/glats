@@ -3,7 +3,7 @@ import gleam/option.{None}
 import gleam/result
 import gleam/erlang/process
 import glats
-import glats/handler.{Reply, Request, Response}
+import glats/handler.{Reply, Response}
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
@@ -18,7 +18,7 @@ pub fn main() {
   Ok(Nil)
 }
 
-pub fn ping_pong_handler(req: Request, state) {
+pub fn ping_pong_handler(req: handler.Request, state) {
   // Got message: Hello
   io.println("Got message: " <> req.body)
 

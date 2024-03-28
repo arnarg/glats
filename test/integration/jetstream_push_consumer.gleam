@@ -1,7 +1,7 @@
 import gleam/io
 import gleam/result
-import gleam/erlang/process.{Subject}
-import glats.{ReceivedMessage, SubscriptionMessage}
+import gleam/erlang/process
+import glats.{ReceivedMessage}
 import glats/jetstream
 import glats/jetstream/stream
 import glats/jetstream/consumer.{
@@ -27,30 +27,25 @@ pub fn main() {
   // Subscribe to subject in the stream using an ephemeral consumer
   let subject = process.new_subject()
   let assert Ok(_sub) =
-    consumer.subscribe(
-      conn,
-      subject,
-      "orders.*",
-      [
-        // Bind to stream created above
-        BindStream(stream.config.name),
-        // Make it a push consumer
-        With(DeliverSubject(inbox)),
-        // Set description for the ephemeral consumer
-        With(Description("An ephemeral consumer for subscription")),
-        // Set ack policy for the consumer
-        With(AckPolicy(AckExplicit)),
-        // Sets the inactive threshold of the ephemeral consumer
-        With(InactiveThreshold(60_000_000_000)),
-      ],
-    )
+    consumer.subscribe(conn, subject, "orders.*", [
+      // Bind to stream created above
+      BindStream(stream.config.name),
+      // Make it a push consumer
+      With(DeliverSubject(inbox)),
+      // Set description for the ephemeral consumer
+      With(Description("An ephemeral consumer for subscription")),
+      // Set ack policy for the consumer
+      With(AckPolicy(AckExplicit)),
+      // Sets the inactive threshold of the ephemeral consumer
+      With(InactiveThreshold(60_000_000_000)),
+    ])
     |> io.debug
 
   // Start loop
   loop(subject)
 }
 
-fn loop(subject: Subject(SubscriptionMessage)) {
+fn loop(subject: process.Subject(glats.SubscriptionMessage)) {
   case process.receive(subject, 2000) {
     // New message received
     Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {

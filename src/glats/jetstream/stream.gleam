@@ -1,13 +1,12 @@
-import gleam/base
-import gleam/bit_string
-import gleam/dynamic.{Dynamic}
-import gleam/option.{None, Option, Some}
+import gleam/bit_array
+import gleam/dynamic
+import gleam/option.{None, Some}
 import gleam/list
-import gleam/map.{Map}
+import gleam/dict
 import gleam/result
-import gleam/json.{Json}
-import glats.{Connection, Message}
-import glats/jetstream.{JetstreamError, StorageType}
+import gleam/json
+import glats
+import glats/jetstream
 import glats/internal/js
 
 const stream_prefix = "$JS.API.STREAM"
@@ -83,7 +82,7 @@ pub type StreamOption {
   /// See: https://docs.nats.io/nats-concepts/jetstream/streams#discardpolicy
   Discard(DiscardPolicy)
   /// The storage type for stream data.
-  Storage(StorageType)
+  Storage(jetstream.StorageType)
   /// How many replicas to keep for each message in a
   /// clustered JetStream, maximum 5.
   NumReplicas(Int)
@@ -126,23 +125,23 @@ pub type StreamConfig {
   StreamConfig(
     name: String,
     subjects: List(String),
-    retention: Option(String),
-    max_consumers: Option(Int),
-    max_msgs: Option(Int),
-    max_bytes: Option(Int),
-    max_age: Option(Int),
-    max_msgs_per_subject: Option(Int),
-    max_msg_size: Option(Int),
-    discard: Option(String),
-    storage: Option(String),
-    num_replicas: Option(Int),
-    duplicate_window: Option(Int),
-    allow_direct: Option(Bool),
-    mirror_direct: Option(Bool),
-    sealed: Option(Bool),
-    deny_delete: Option(Bool),
-    deny_purge: Option(Bool),
-    allow_rollup_hdrs: Option(Bool),
+    retention: option.Option(String),
+    max_consumers: option.Option(Int),
+    max_msgs: option.Option(Int),
+    max_bytes: option.Option(Int),
+    max_age: option.Option(Int),
+    max_msgs_per_subject: option.Option(Int),
+    max_msg_size: option.Option(Int),
+    discard: option.Option(String),
+    storage: option.Option(String),
+    num_replicas: option.Option(Int),
+    duplicate_window: option.Option(Int),
+    allow_direct: option.Option(Bool),
+    mirror_direct: option.Option(Bool),
+    sealed: option.Option(Bool),
+    deny_delete: option.Option(Bool),
+    deny_purge: option.Option(Bool),
+    allow_rollup_hdrs: option.Option(Bool),
   )
 }
 
@@ -161,7 +160,7 @@ pub type StreamState {
 }
 
 pub type StreamMessage {
-  StreamMessage(sequence: Int, time: String, message: Message)
+  StreamMessage(sequence: Int, time: String, message: glats.Message)
 }
 
 //             //
@@ -171,9 +170,9 @@ pub type StreamMessage {
 /// Get info about a stream by name.
 ///
 pub fn info(
-  conn: Connection,
+  conn: glats.Connection,
   name: String,
-) -> Result(StreamInfo, JetstreamError) {
+) -> Result(StreamInfo, jetstream.JetstreamError) {
   let topic = stream_prefix <> ".INFO." <> name
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -182,13 +181,13 @@ pub fn info(
   }
 }
 
-external fn decode_info_data(
-  data: Map(String, Dynamic),
-) -> Result(StreamInfo, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_stream_info_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_info_data")
+fn decode_info_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(StreamInfo, #(Int, String))
 
 fn decode_info(body: String) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_info_data)
@@ -220,7 +219,7 @@ fn decode_info(body: String) {
 /// )
 /// ```
 pub fn create(
-  conn: Connection,
+  conn: glats.Connection,
   name: String,
   subjects: List(String),
   opts: List(StreamOption),
@@ -246,7 +245,7 @@ pub fn create(
 
 /// Updates the config of a stream.
 ///
-pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
+pub fn update(conn: glats.Connection, name: String, opts: List(StreamOption)) {
   let topic = stream_prefix <> ".UPDATE." <> name
   let body =
     [#("name", json.string(name))]
@@ -265,7 +264,7 @@ pub fn update(conn: Connection, name: String, opts: List(StreamOption)) {
 
 /// Deletes a stream.
 ///
-pub fn delete(conn: Connection, name: String) {
+pub fn delete(conn: glats.Connection, name: String) {
   let topic = stream_prefix <> ".DELETE." <> name
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -275,13 +274,13 @@ pub fn delete(conn: Connection, name: String) {
   }
 }
 
-external fn decode_delete_data(
-  data: Map(String, Dynamic),
-) -> Result(Nil, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_stream_delete_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_delete_data")
+fn decode_delete_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(Nil, #(Int, String))
 
-fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_delete_data)
@@ -296,7 +295,7 @@ fn decode_delete(body: String) -> Result(Nil, JetstreamError) {
 
 /// Purges all of the data in a Stream, leaves the Stream.
 ///
-pub fn purge(conn: Connection, name: String) {
+pub fn purge(conn: glats.Connection, name: String) {
   let topic = stream_prefix <> ".PURGE." <> name
 
   case glats.request(conn, topic, "", [], 1000) {
@@ -306,13 +305,13 @@ pub fn purge(conn: Connection, name: String) {
   }
 }
 
-external fn decode_purge_data(
-  data: Map(String, Dynamic),
-) -> Result(Int, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_stream_purge_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_purge_data")
+fn decode_purge_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(Int, #(Int, String))
 
-fn decode_purge(body: String) -> Result(Int, JetstreamError) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+fn decode_purge(body: String) -> Result(Int, jetstream.JetstreamError) {
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_purge_data)
@@ -328,9 +327,9 @@ fn decode_purge(body: String) -> Result(Int, JetstreamError) {
 /// Tries to find a stream name by subject.
 ///
 pub fn find_stream_name_by_subject(
-  conn: Connection,
+  conn: glats.Connection,
   subject: String,
-) -> Result(String, JetstreamError) {
+) -> Result(String, jetstream.JetstreamError) {
   let topic = stream_prefix <> ".NAMES"
 
   let body =
@@ -354,13 +353,13 @@ pub fn find_stream_name_by_subject(
   }
 }
 
-external fn decode_stream_names_data(
-  data: Map(String, Dynamic),
-) -> Result(List(String), #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_stream_names_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_names_data")
+fn decode_stream_names_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(List(String), #(Int, String))
 
-fn decode_names(body: String) -> Result(List(String), JetstreamError) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+fn decode_names(body: String) -> Result(List(String), jetstream.JetstreamError) {
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_stream_names_data)
@@ -370,7 +369,7 @@ fn decode_names(body: String) -> Result(List(String), JetstreamError) {
 }
 
 //             //
-// Get Message //
+// Get glats.Message //
 //             //
 
 /// Access method type for a get message request to Jetstream.
@@ -391,16 +390,16 @@ type RawStreamMessage {
   RawStreamMessage(
     topic: String,
     seq: Int,
-    hdrs: Option(String),
+    hdrs: option.Option(String),
     data: String,
     time: String,
   )
 }
 
-external fn decode_raw_stream_message_data(
-  data: Map(String, Dynamic),
-) -> Result(RawStreamMessage, #(Int, String)) =
-  "Elixir.Glats.Jetstream" "decode_raw_stream_message_data"
+@external(erlang, "Elixir.Glats.Jetstream", "decode_raw_stream_message_data")
+fn decode_raw_stream_message_data(
+  data data: dict.Dict(String, dynamic.Dynamic),
+) -> Result(RawStreamMessage, #(Int, String))
 
 /// Directly fetches a message from a stream either by sequence ID
 /// (by passing `SequenceID(Int)`) or by subject (by passing
@@ -413,7 +412,7 @@ external fn decode_raw_stream_message_data(
 /// Keep in mind that `allow_direct` has to be enabled in stream config
 /// for this to work.
 ///
-pub fn get_message(conn: Connection, stream: String, method: AccessMethod) {
+pub fn get_message(conn: glats.Connection, stream: String, method: AccessMethod) {
   let topic = stream_prefix <> ".MSG.GET." <> stream
   let body = encode_get_message_body(method)
 
@@ -443,7 +442,7 @@ fn encode_get_message_body(method: AccessMethod) -> String {
 // Decode the raw message JSON from a get message request.
 //
 fn decode_raw_message(body: String) {
-  let decoder = dynamic.map(dynamic.string, dynamic.dynamic)
+  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
 
   json.decode(body, decoder)
   |> result.map(decode_raw_stream_message_data)
@@ -456,26 +455,26 @@ fn decode_raw_message(body: String) {
 //
 fn raw_to_stream_message(msg: RawStreamMessage) {
   use body <- result.then(
-    base.decode64(msg.data)
-    |> result.map(bit_string.to_string),
+    bit_array.base64_decode(msg.data)
+    |> result.map(bit_array.to_string),
   )
 
   let hdrs = case msg.hdrs {
     Some(data) ->
       js.decode_b64_headers(data)
-      |> result.unwrap(map.new())
-    None -> map.new()
+      |> result.unwrap(dict.new())
+    None -> dict.new()
   }
 
   Ok(StreamMessage(
     sequence: msg.seq,
     time: msg.time,
-    message: Message(
+    message: glats.Message(
       topic: msg.topic,
       headers: hdrs,
       reply_to: None,
       body: body
-      |> result.unwrap(""),
+        |> result.unwrap(""),
     ),
   ))
 }
@@ -484,34 +483,40 @@ fn raw_to_stream_message(msg: RawStreamMessage) {
 // Stream config building helpers //
 //                                //
 
-fn stream_options_to_json(prev: List(#(String, Json)), opts: List(StreamOption)) {
+fn stream_options_to_json(
+  prev: List(#(String, json.Json)),
+  opts: List(StreamOption),
+) {
   prev
   |> apply_stream_options(opts)
   |> json.object
   |> json.to_string
 }
 
-fn apply_stream_options(prev: List(#(String, Json)), opts: List(StreamOption)) {
+fn apply_stream_options(
+  prev: List(#(String, json.Json)),
+  opts: List(StreamOption),
+) {
   list.fold(opts, prev, apply_stream_option)
 }
 
-fn apply_stream_option(prev: List(#(String, Json)), opt: StreamOption) {
+fn apply_stream_option(prev: List(#(String, json.Json)), opt: StreamOption) {
   let pair = case opt {
     Description(desc) -> #("description", json.string(desc))
     Retention(pol) -> #(
       "retention",
       ret_pol_to_string(pol)
-      |> json.string,
+        |> json.string,
     )
     Discard(pol) -> #(
       "discard",
       dis_pol_to_string(pol)
-      |> json.string,
+        |> json.string,
     )
     Storage(storage) -> #(
       "storage",
       storage_to_string(storage)
-      |> json.string,
+        |> json.string,
     )
     MaxConsumers(num) -> #("max_consumers", json.int(num))
     MaxMessages(num) -> #("max_msgs", json.int(num))
@@ -547,7 +552,7 @@ fn dis_pol_to_string(pol: DiscardPolicy) {
   }
 }
 
-fn storage_to_string(storage: StorageType) {
+fn storage_to_string(storage: jetstream.StorageType) {
   case storage {
     jetstream.FileStorage -> "file"
     jetstream.MemoryStorage -> "memory"
