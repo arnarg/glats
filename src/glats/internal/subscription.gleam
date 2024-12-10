@@ -1,14 +1,13 @@
-import gleam/io
-import gleam/int
-import gleam/string
 import gleam/dict
-import gleam/option.{None, Some}
 import gleam/dynamic
-import gleam/result
-import gleam/function.{constant}
 import gleam/erlang/atom
 import gleam/erlang/process
+import gleam/int
+import gleam/io
+import gleam/option.{None, Some}
 import gleam/otp/actor
+import gleam/result
+import gleam/string
 
 /// Raw message received from Gnat.
 pub type RawMessage {
@@ -51,7 +50,7 @@ pub fn start_subscriber(
 
       let selector =
         process.new_selector()
-        |> process.selecting_process_down(monitor, constant(SubscriberExited))
+        |> process.selecting_process_down(monitor, fn(_) { SubscriberExited })
         |> process.selecting_record2(
           atom.create_from_string("msg"),
           map_gnat_message,
