@@ -1,6 +1,6 @@
-import gleam/result
-import gleam/erlang/process
 import glats
+import gleam/erlang/process
+import gleam/result
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))

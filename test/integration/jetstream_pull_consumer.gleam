@@ -1,16 +1,16 @@
-import gleam/io
-import gleam/string
-import gleam/result
-import gleam/option.{Some}
-import gleam/otp/actor.{InitFailed}
-import gleam/erlang/process.{Abnormal}
 import glats.{ReceivedMessage}
 import glats/jetstream
-import glats/jetstream/stream
 import glats/jetstream/consumer.{
   AckExplicit, AckPolicy, Batch, BindStream, Description, InactiveThreshold,
   NoWait, With,
 }
+import glats/jetstream/stream
+import gleam/erlang/process.{Abnormal}
+import gleam/io
+import gleam/option.{Some}
+import gleam/otp/actor.{InitFailed}
+import gleam/result
+import gleam/string
 
 const batch_size = 50
 
@@ -43,7 +43,7 @@ pub fn main() {
       // Sets the inactive threshold of the ephemeral consumer
       With(InactiveThreshold(60_000_000_000)),
     ])
-    |> io.debug
+    |> echo
 
   // Start loop
   case request_and_loop(subject, State(sub: sub, remaining: 0)) {
@@ -85,7 +85,7 @@ fn loop(subject, state: State) {
     // We got a new message!
     Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
       // Print message
-      io.debug(msg)
+      echo msg
 
       // Acknowledge message
       let assert Ok(_) = jetstream.ack(conn, msg)

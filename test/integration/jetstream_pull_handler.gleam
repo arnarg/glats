@@ -1,14 +1,14 @@
-import gleam/io
-import gleam/int
-import gleam/result
-import gleam/function
-import gleam/erlang/process
 import glats
-import glats/jetstream/stream.{Retention, WorkQueuePolicy}
 import glats/jetstream/consumer.{
   AckExplicit, AckPolicy, BindStream, Description, With,
 }
 import glats/jetstream/handler.{Ack}
+import glats/jetstream/stream.{Retention, WorkQueuePolicy}
+import gleam/erlang/process
+import gleam/function
+import gleam/int
+import gleam/io
+import gleam/result
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))

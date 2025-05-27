@@ -1,13 +1,13 @@
-import gleam/io
-import gleam/result
-import gleam/erlang/process
 import glats.{ReceivedMessage}
 import glats/jetstream
-import glats/jetstream/stream
 import glats/jetstream/consumer.{
   AckExplicit, AckPolicy, BindStream, DeliverSubject, Description,
   InactiveThreshold, With,
 }
+import glats/jetstream/stream
+import gleam/erlang/process
+import gleam/io
+import gleam/result
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
@@ -39,7 +39,7 @@ pub fn main() {
       // Sets the inactive threshold of the ephemeral consumer
       With(InactiveThreshold(60_000_000_000)),
     ])
-    |> io.debug
+    |> echo
 
   // Start loop
   loop(subject)
@@ -50,7 +50,7 @@ fn loop(subject: process.Subject(glats.SubscriptionMessage)) {
     // New message received
     Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
       // Print message
-      io.debug(msg)
+      echo msg
 
       // Acknowledge message
       let assert Ok(Nil) = jetstream.ack(conn, msg)

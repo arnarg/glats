@@ -50,12 +50,12 @@
 //// ```
 ////
 
-import gleam/string
-import gleam/dict
-import gleam/option.{None, Some}
-import gleam/erlang/process
-import gleam/otp/actor
 import glats
+import gleam/dict
+import gleam/erlang/process
+import gleam/option.{None, Some}
+import gleam/otp/actor
+import gleam/string
 
 /// The message data received from the request handler's topic.
 ///

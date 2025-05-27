@@ -1,9 +1,9 @@
-import gleam/io
-import gleam/int
-import gleam/result
 import glats
 import glats/jetstream.{MemoryStorage}
 import glats/jetstream/stream.{Retention, Storage, WorkQueuePolicy}
+import gleam/int
+import gleam/io
+import gleam/result
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))
@@ -18,11 +18,11 @@ pub fn main() {
 
   let assert Ok("mystream") =
     stream.find_stream_name_by_subject(conn, "orders.*")
-    |> io.debug
+    |> echo
 
   let assert Error(jetstream.StreamNotFound(_)) =
     stream.find_stream_name_by_subject(conn, "nonexisting.*")
-    |> io.debug
+    |> echo
 
   io.println("Stream: " <> info.config.name)
   io.println("Created: " <> info.created)
@@ -30,23 +30,23 @@ pub fn main() {
 
   let assert Ok(Nil) =
     glats.publish(conn, "orders.1", "order_data", [])
-    |> io.debug
+    |> echo
 
   let assert Ok(Nil) =
     glats.publish(conn, "orders.2", "order_data", [])
-    |> io.debug
+    |> echo
 
   let assert Ok(_) =
     stream.get_message(conn, info.config.name, stream.LastBySubject("orders.>"))
-    |> io.debug
+    |> echo
 
   let assert Ok(_) =
     stream.get_message(conn, info.config.name, stream.SequenceID(1))
-    |> io.debug
+    |> echo
 
   let assert Ok(Nil) =
     stream.delete(conn, created.config.name)
-    |> io.debug
+    |> echo
 
   Ok(Nil)
 }

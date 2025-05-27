@@ -92,14 +92,14 @@
 //// ...
 //// ```
 
-import gleam/string
-import gleam/option.{None, Some}
-import gleam/function.{identity}
-import gleam/otp/actor
-import gleam/erlang/process.{Abnormal}
 import glats
 import glats/jetstream
 import glats/jetstream/consumer
+import gleam/erlang/process.{Abnormal}
+import gleam/function.{identity}
+import gleam/option.{None, Some}
+import gleam/otp/actor
+import gleam/string
 
 const expires = 10_000
 
@@ -234,8 +234,7 @@ fn handle_pull_message(message: glats.Message, state: PullHandlerState(a)) {
       actor.Continue(
         PullHandlerState(
           ..state,
-          pending: state.pending
-          - 1,
+          pending: state.pending - 1,
           inner_state: inner,
         ),
         None,

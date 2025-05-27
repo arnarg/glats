@@ -1,7 +1,7 @@
-import gleeunit/should
-import gleam/dict
-import glats/jetstream
 import glats/internal/js
+import glats/jetstream
+import gleam/dict
+import gleeunit/should
 
 pub fn stream_not_found_test() {
   js.map_code_to_error(#(10_059, "stream not found"))

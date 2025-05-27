@@ -1,14 +1,15 @@
-import gleam/io
-import gleam/result
-import gleam/dynamic
+import glats/internal/subscription
+import glats/internal/util
 import gleam/dict
-import gleam/option.{None, Some}
-import gleam/list
-import gleam/otp/actor
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/erlang/atom
 import gleam/erlang/process
-import glats/internal/util
-import glats/internal/subscription
+import gleam/io
+import gleam/list
+import gleam/option.{None, Some}
+import gleam/otp/actor
+import gleam/result
 
 pub type Connection =
   process.Subject(ConnectionMessage)
@@ -322,7 +323,7 @@ fn handle_request(
   state: State,
 ) {
   let opts = [
-    #(atom.create_from_string("receive_timeout"), dynamic.from(timeout)),
+    #(atom.create_from_string("receive_timeout"), dynamic.int(timeout)),
   ]
 
   // In order to not block the connection actor we return a function
@@ -592,7 +593,7 @@ fn build_settings(
   port: Int,
   opts: List(ConnectionOption),
 ) -> dict.Dict(atom.Atom, dynamic.Dynamic) {
-  [#("host", dynamic.from(host)), #("port", dynamic.from(port))]
+  [#("host", dynamic.string(host)), #("port", dynamic.int(port))]
   |> dict.from_list
   |> list.fold(opts, _, apply_conn_option)
   |> add_ssl_opts
@@ -612,39 +613,39 @@ fn apply_conn_option(
   case opt {
     UserPass(user, pass) ->
       prev
-      |> dict.insert("username", dynamic.from(user))
-      |> dict.insert("password", dynamic.from(pass))
+      |> dict.insert("username", dynamic.string(user))
+      |> dict.insert("password", dynamic.string(pass))
     Token(token) ->
       prev
-      |> dict.insert("token", dynamic.from(token))
+      |> dict.insert("token", dynamic.string(token))
     NKeySeed(seed) ->
       prev
-      |> dict.insert("nkey_seed", dynamic.from(seed))
+      |> dict.insert("nkey_seed", dynamic.string(seed))
     JWT(jwt) ->
       prev
-      |> dict.insert("jwt", dynamic.from(jwt))
+      |> dict.insert("jwt", dynamic.string(jwt))
     CACert(path) ->
       prev
-      |> dict.insert("tls", dynamic.from(True))
-      |> dict.insert("cacertfile", dynamic.from(path))
+      |> dict.insert("tls", dynamic.bool(True))
+      |> dict.insert("cacertfile", dynamic.string(path))
     ClientCert(cert, key) ->
       prev
-      |> dict.insert("tls", dynamic.from(True))
-      |> dict.insert("certfile", dynamic.from(cert))
-      |> dict.insert("keyfile", dynamic.from(key))
+      |> dict.insert("tls", dynamic.bool(True))
+      |> dict.insert("certfile", dynamic.string(cert))
+      |> dict.insert("keyfile", dynamic.string(key))
     InboxPrefix(prefix) ->
-      dict.insert(prev, "inbox_prefix", dynamic.from(prefix))
+      dict.insert(prev, "inbox_prefix", dynamic.string(prefix))
     ConnectionTimeout(timeout) ->
-      dict.insert(prev, "connection_timeout", dynamic.from(timeout))
-    EnableNoResponders -> dict.insert(prev, "no_responders", dynamic.from(True))
+      dict.insert(prev, "connection_timeout", dynamic.int(timeout))
+    EnableNoResponders -> dict.insert(prev, "no_responders", dynamic.bool(True))
   }
 }
 
 fn add_ssl_opts(prev: dict.Dict(String, dynamic.Dynamic)) {
   dict.take(prev, ["cacertfile", "certfile", "keyfile"])
   |> dict.to_list
-  |> list.map(fn(o) { #(atom.create_from_string(o.0), o.1) })
-  |> dynamic.from
+  |> list.map(fn(o) { #(dynamic.from(atom.create_from_string(o.0)), o.1) })
+  |> dynamic.properties
   |> dict.insert(prev, "ssl_opts", _)
 }
 
@@ -652,37 +653,37 @@ fn add_ssl_opts(prev: dict.Dict(String, dynamic.Dynamic)) {
 
 // Decodes a message map returned by NATS
 fn decode_msg(data: dynamic.Dynamic) {
-  data
-  |> dynamic.decode4(
-    Message,
-    atom_field("topic", dynamic.string),
-    headers,
-    reply_to,
-    atom_field("body", dynamic.string),
-  )
+  let decoder = {
+    use topic <- decode.field(atom.create_from_string("topic"), decode.string)
+    use headers <- decode_headers
+    use reply_to <- decode_reply_to
+    use body <- decode.field(atom.create_from_string("body"), decode.string)
+
+    decode.success(Message(topic, headers, reply_to, body))
+  }
+
+  decode.run(data, decoder)
 }
 
 // Decodes headers from a map with message data.
 // If the key is absent (which happens when no headers are sent)
 // an empty map is returned.
-fn headers(data: dynamic.Dynamic) {
-  data
-  |> atom_field(
-    "headers",
-    dynamic.list(dynamic.tuple2(dynamic.string, dynamic.string)),
+fn decode_headers(next) {
+  decode.optional_field(
+    atom.create_from_string("headers"),
+    dict.new(),
+    decode.dict(decode.string, decode.string),
+    next,
   )
-  |> result.map(dict.from_list)
-  |> result.or(Ok(dict.new()))
 }
 
 // Decodes reply_to from a map with message data into option.Option(String).
 // If reply_to is `Nil` None is returned.
-fn reply_to(data: dynamic.Dynamic) {
-  data
-  |> dynamic.optional(atom_field("reply_to", dynamic.string))
-  |> result.or(Ok(None))
-}
-
-fn atom_field(key: String, value) {
-  dynamic.field(atom.create_from_string(key), value)
+fn decode_reply_to(next) {
+  decode.optional_field(
+    atom.create_from_string("reply_to"),
+    None,
+    decode.optional(decode.string),
+    next,
+  )
 }

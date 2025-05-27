@@ -1,9 +1,9 @@
+import glats
+import glats/handler.{Reply, Response}
+import gleam/erlang/process
 import gleam/io
 import gleam/option.{None}
 import gleam/result
-import gleam/erlang/process
-import glats
-import glats/handler.{Reply, Response}
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))

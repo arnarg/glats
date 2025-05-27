@@ -1,13 +1,14 @@
-import gleam/bit_array
-import gleam/dynamic
-import gleam/option.{None, Some}
-import gleam/list
-import gleam/dict
-import gleam/result
-import gleam/json
 import glats
-import glats/jetstream
 import glats/internal/js
+import glats/jetstream
+import gleam/bit_array
+import gleam/dict
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/json
+import gleam/list
+import gleam/option.{None, Some}
+import gleam/result
 
 const stream_prefix = "$JS.API.STREAM"
 
@@ -187,9 +188,7 @@ fn decode_info_data(
 ) -> Result(StreamInfo, #(Int, String))
 
 fn decode_info(body: String) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_info_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -280,9 +279,7 @@ fn decode_delete_data(
 ) -> Result(Nil, #(Int, String))
 
 fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_delete_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -311,9 +308,7 @@ fn decode_purge_data(
 ) -> Result(Int, #(Int, String))
 
 fn decode_purge(body: String) -> Result(Int, jetstream.JetstreamError) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_purge_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -359,9 +354,7 @@ fn decode_stream_names_data(
 ) -> Result(List(String), #(Int, String))
 
 fn decode_names(body: String) -> Result(List(String), jetstream.JetstreamError) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_stream_names_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -442,9 +435,7 @@ fn encode_get_message_body(method: AccessMethod) -> String {
 // Decode the raw message JSON from a get message request.
 //
 fn decode_raw_message(body: String) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_raw_stream_message_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten

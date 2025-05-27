@@ -1,5 +1,5 @@
-import gleam/result
 import glats
+import gleam/result
 
 pub fn main() {
   use conn <- result.then(glats.connect("localhost", 4222, []))

@@ -1,16 +1,17 @@
-import gleam/string
-import gleam/dict
-import gleam/dynamic
-import gleam/option.{None, Some}
-import gleam/list
-import gleam/result
-import gleam/json
-import gleam/erlang/process
 import glats
-import glats/jetstream
-import glats/jetstream/stream
 import glats/internal/js
 import glats/internal/util
+import glats/jetstream
+import glats/jetstream/stream
+import gleam/dict
+import gleam/dynamic
+import gleam/dynamic/decode
+import gleam/erlang/process
+import gleam/json
+import gleam/list
+import gleam/option.{None, Some}
+import gleam/result
+import gleam/string
 
 const consumer_prefix = "$JS.API.CONSUMER"
 
@@ -242,9 +243,7 @@ fn decode_consumer_info_data(
 ) -> Result(ConsumerInfo, #(Int, String))
 
 fn decode_info(body: String) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_consumer_info_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -308,9 +307,7 @@ fn decode_delete_data(
 ) -> Result(Nil, #(Int, String))
 
 fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_delete_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten
@@ -339,9 +336,7 @@ fn decode_consumer_names_data(
 ) -> Result(Nil, #(Int, String))
 
 fn decode_names(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  let decoder = dynamic.dict(dynamic.string, dynamic.dynamic)
-
-  json.decode(body, decoder)
+  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
   |> result.map(decode_consumer_names_data)
   |> result.map_error(fn(_) { #(-1, "decode error") })
   |> result.flatten

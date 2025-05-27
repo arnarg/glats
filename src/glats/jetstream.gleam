@@ -1,5 +1,5 @@
-import gleam/int
 import glats
+import gleam/int
 
 /// Errors that can be returned when working with Jetstream.
 ///

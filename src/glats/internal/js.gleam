@@ -1,10 +1,10 @@
-import gleam/bit_array.{base64_decode}
-import gleam/result
-import gleam/string
-import gleam/list
-import gleam/dict
 import glats
 import glats/jetstream
+import gleam/bit_array.{base64_decode}
+import gleam/dict
+import gleam/list
+import gleam/result
+import gleam/string
 
 pub fn map_code_to_error(data: #(Int, String)) -> jetstream.JetstreamError {
   case data.0 {

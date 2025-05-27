@@ -185,7 +185,7 @@ pub fn main() {
         With(InactiveThreshold(60_000_000_000)),
       ],
     )
-    |> io.debug
+    |> echo
 
   // Start loop
   case request_and_loop(subject, State(sub: sub, remaining: 0)) {
@@ -227,7 +227,7 @@ fn loop(subject, state: State) {
     // We got a new message!
     Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
       // Print message
-      io.debug(msg)
+      echo msg
 
       // Acknowledge message
       let assert Ok(_) = jetstream.ack(conn, msg)
@@ -305,7 +305,7 @@ pub fn main() {
         With(InactiveThreshold(60_000_000_000)),
       ],
     )
-    |> io.debug
+    |> echo
 
   // Start loop
   loop(subject)
@@ -316,7 +316,7 @@ fn loop(subject: Subject(SubscriptionMessage)) {
     // New message received
     Ok(ReceivedMessage(conn: conn, message: msg, ..)) -> {
       // Print message
-      io.debug(msg)
+      echo msg
 
       // Acknowledge message
       let assert Ok(Nil) = jetstream.ack(conn, msg)
