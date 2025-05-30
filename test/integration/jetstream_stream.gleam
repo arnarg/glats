@@ -44,6 +44,10 @@ pub fn main() {
     stream.get_message(conn, info.config.name, stream.SequenceID(1))
     |> echo
 
+  let assert Ok(2) =
+    stream.purge(conn, created.config.name)
+    |> echo
+
   let assert Ok(Nil) =
     stream.delete(conn, created.config.name)
     |> echo

@@ -182,17 +182,92 @@ pub fn info(
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_info_data")
-fn decode_info_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(StreamInfo, #(Int, String))
-
 fn decode_info(body: String) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_info_data)
+  let decoder = {
+    use created <- decode.field("created", decode.string)
+    use config <- decode.field("config", stream_config_decoder())
+    use state <- decode.field("state", stream_state_decoder())
+
+    decode.success(StreamInfo(created, config, state))
+  }
+
+  json.parse(from: body, using: decoder)
   |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
   |> result.map_error(js.map_code_to_error)
+}
+
+fn stream_config_decoder() -> decode.Decoder(StreamConfig) {
+  use name <- decode.field("name", decode.string)
+  use subjects <- decode.field("subjects", decode.list(of: decode.string))
+  use retention <- decode_optional_field("retention", decode.string)
+  use max_consumers <- decode_optional_field("max_consumers", decode.int)
+  use max_msgs <- decode_optional_field("max_msgs", decode.int)
+  use max_bytes <- decode_optional_field("max_bytes", decode.int)
+  use max_age <- decode_optional_field("max_age", decode.int)
+  use max_msgs_per_subject <- decode_optional_field(
+    "max_msgs_per_subject",
+    decode.int,
+  )
+  use max_msg_size <- decode_optional_field("max_msg_size", decode.int)
+  use discard <- decode_optional_field("discard", decode.string)
+  use storage <- decode_optional_field("storage", decode.string)
+  use num_replicas <- decode_optional_field("num_replicas", decode.int)
+  use duplicate_window <- decode_optional_field("duplicate_window", decode.int)
+  use allow_direct <- decode_optional_field("allow_direct", decode.bool)
+  use mirror_direct <- decode_optional_field("mirror_direct", decode.bool)
+  use sealed <- decode_optional_field("sealed", decode.bool)
+  use deny_delete <- decode_optional_field("deny_delete", decode.bool)
+  use deny_purge <- decode_optional_field("deny_purge", decode.bool)
+  use allow_rollup_hdrs <- decode_optional_field(
+    "allow_rollup_hdrs",
+    decode.bool,
+  )
+
+  decode.success(StreamConfig(
+    name,
+    subjects,
+    retention,
+    max_consumers,
+    max_msgs,
+    max_bytes,
+    max_age,
+    max_msgs_per_subject,
+    max_msg_size,
+    discard,
+    storage,
+    num_replicas,
+    duplicate_window,
+    allow_direct,
+    mirror_direct,
+    sealed,
+    deny_delete,
+    deny_purge,
+    allow_rollup_hdrs,
+  ))
+}
+
+fn stream_state_decoder() -> decode.Decoder(StreamState) {
+  use messages <- decode.field("messages", decode.int)
+  use bytes <- decode.field("bytes", decode.int)
+  use first_seq <- decode.field("first_seq", decode.int)
+  use first_ts <- decode.field("first_ts", decode.string)
+  use last_seq <- decode.field("last_seq", decode.int)
+  use last_ts <- decode.field("last_ts", decode.string)
+  use consumer_count <- decode.field("consumer_count", decode.int)
+
+  decode.success(StreamState(
+    messages,
+    bytes,
+    first_seq,
+    first_ts,
+    last_seq,
+    last_ts,
+    consumer_count,
+  ))
+}
+
+fn decode_optional_field(key: String, field_decoder: decode.Decoder(a), next) {
+  decode.optional_field(key, None, decode.optional(field_decoder), next)
 }
 
 //               //
@@ -273,17 +348,15 @@ pub fn delete(conn: glats.Connection, name: String) {
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_delete_data")
-fn decode_delete_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(Nil, #(Int, String))
-
 fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_delete_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  let decoder = {
+    use _ <- decode.field("success", decode.bool)
+
+    decode.success(Nil)
+  }
+
+  body
+  |> json_parse_jetstream_errorable(decoder)
 }
 
 //              //
@@ -302,17 +375,14 @@ pub fn purge(conn: glats.Connection, name: String) {
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_purge_data")
-fn decode_purge_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(Int, #(Int, String))
-
 fn decode_purge(body: String) -> Result(Int, jetstream.JetstreamError) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_purge_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  body
+  |> json_parse_jetstream_errorable({
+    use _ <- decode.field("success", decode.bool)
+    use purged <- decode.field("purged", decode.int)
+
+    decode.success(purged)
+  })
 }
 
 //                             //
@@ -348,22 +418,21 @@ pub fn find_stream_name_by_subject(
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_stream_names_data")
-fn decode_stream_names_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(List(String), #(Int, String))
-
 fn decode_names(body: String) -> Result(List(String), jetstream.JetstreamError) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_stream_names_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  body
+  |> json_parse_jetstream_errorable({
+    use streams <- decode.field(
+      "streams",
+      decode.optional(decode.list(decode.string)),
+    )
+
+    decode.success(streams |> option.unwrap([]))
+  })
 }
 
-//             //
+//                   //
 // Get glats.Message //
-//             //
+//                   //
 
 /// Access method type for a get message request to Jetstream.
 ///
@@ -388,11 +457,6 @@ type RawStreamMessage {
     time: String,
   )
 }
-
-@external(erlang, "Elixir.Glats.Jetstream", "decode_raw_stream_message_data")
-fn decode_raw_stream_message_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(RawStreamMessage, #(Int, String))
 
 /// Directly fetches a message from a stream either by sequence ID
 /// (by passing `SequenceID(Int)`) or by subject (by passing
@@ -435,11 +499,24 @@ fn encode_get_message_body(method: AccessMethod) -> String {
 // Decode the raw message JSON from a get message request.
 //
 fn decode_raw_message(body: String) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_raw_stream_message_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  body
+  |> json_parse_jetstream_errorable({
+    use message <- decode.field("message", {
+      use subject <- decode.field("subject", decode.string)
+      use seq <- decode.field("seq", decode.int)
+      use data <- decode.field("data", decode.string)
+      use time <- decode.field("time", decode.string)
+      use hdrs <- decode.optional_field(
+        "hdrs",
+        None,
+        decode.optional(decode.string),
+      )
+
+      decode.success(RawStreamMessage(topic: subject, seq:, hdrs:, data:, time:))
+    })
+
+    decode.success(message)
+  })
 }
 
 // Map a RawStreamMessage to a StreamMessage.
@@ -468,6 +545,32 @@ fn raw_to_stream_message(msg: RawStreamMessage) {
         |> result.unwrap(""),
     ),
   ))
+}
+
+//                  //
+// Decoding helpers //
+//                  //
+fn json_parse_jetstream_errorable(
+  body: String,
+  decoder: decode.Decoder(t),
+) -> Result(t, jetstream.JetstreamError) {
+  json.parse(
+    from: body,
+    using: decode.one_of(decoder |> decode.map(Ok), [
+      {
+        use err_code <- decode.subfield(["error", "err_code"], decode.int)
+        use description <- decode.subfield(
+          ["error", "description"],
+          decode.string,
+        )
+
+        decode.success(Error(#(err_code, description)))
+      },
+    ]),
+  )
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
 }
 
 //                                //

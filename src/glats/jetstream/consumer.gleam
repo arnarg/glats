@@ -4,7 +4,6 @@ import glats/internal/util
 import glats/jetstream
 import glats/jetstream/stream
 import gleam/dict
-import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/json
@@ -140,6 +139,17 @@ pub type AckPolicy {
   AckAll
 }
 
+fn ack_policy_decoder() -> decode.Decoder(AckPolicy) {
+  decode.map(decode.string, fn(val: String) -> AckPolicy {
+    case val {
+      "all" -> AckAll
+      "none" -> AckNone
+      "explicit" -> AckExplicit
+      _ -> AckExplicit
+    }
+  })
+}
+
 /// Available delivier policies to select the point in the stream to
 /// start consuming from.
 ///
@@ -164,6 +174,33 @@ pub type DeliverPolicy {
   DeliverByStartTime(String)
 }
 
+fn deliver_policy_decoder(
+  opt_start_seq: option.Option(Int),
+  opt_start_time: option.Option(String),
+) -> decode.Decoder(DeliverPolicy) {
+  let default = DeliverAll
+
+  decode.map(decode.string, fn(val: String) -> DeliverPolicy {
+    case val {
+      "all" -> DeliverAll
+      "last" -> DeliverLast
+      "last_per_subject" -> DeliverLastPerSubject
+      "new" -> DeliverNew
+      "by_start_sequence" ->
+        case opt_start_seq {
+          Some(seq) -> DeliverByStartSequence(seq)
+          None -> default
+        }
+      "by_start_time" ->
+        case opt_start_time {
+          Some(time) -> DeliverByStartTime(time)
+          None -> default
+        }
+      _ -> default
+    }
+  })
+}
+
 /// The policy to control how to replay messages from a stream.
 ///
 pub type ReplayPolicy {
@@ -174,6 +211,16 @@ pub type ReplayPolicy {
   /// The messages in the stream will be pushed to the client at the same rate
   /// that they were originally received, simulating the original timing of messages.
   ReplayOriginal
+}
+
+fn replay_policy_decoder() -> decode.Decoder(ReplayPolicy) {
+  decode.map(decode.string, fn(val: String) -> ReplayPolicy {
+    case val {
+      "instant" -> ReplayInstant
+      "original" -> ReplayOriginal
+      _ -> ReplayInstant
+    }
+  })
 }
 
 pub type ConsumerInfo {
@@ -237,17 +284,86 @@ pub fn info(
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_consumer_info_data")
-fn decode_consumer_info_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(ConsumerInfo, #(Int, String))
-
 fn decode_info(body: String) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_consumer_info_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  let decoder = {
+    use stream <- decode.field("stream_name", decode.string)
+    use name <- decode.field("name", decode.string)
+    use created <- decode.field("created", decode.string)
+    use config <- decode.field("config", consumer_config_decoder())
+    use delivered <- decode.field("delivered", sequence_info_decoder())
+    use ack_floor <- decode.field("ack_floor", sequence_info_decoder())
+    use num_ack_pending <- decode.field("num_ack_pending", decode.int)
+    use num_redelivered <- decode.field("num_redelivered", decode.int)
+    use num_waiting <- decode.field("num_waiting", decode.int)
+    use num_pending <- decode.field("num_pending", decode.int)
+
+    decode.success(ConsumerInfo(
+      stream:,
+      name:,
+      created:,
+      config:,
+      delivered:,
+      ack_floor:,
+      num_ack_pending:,
+      num_redelivered:,
+      num_waiting:,
+      num_pending:,
+    ))
+  }
+
+  body
+  |> json_parse_jetstream_errorable(decoder)
+}
+
+fn consumer_config_decoder() -> decode.Decoder(ConsumerConfig) {
+  use ack_policy <- decode.field("ack_policy", ack_policy_decoder())
+  use replay_policy <- decode.field("replay_policy", replay_policy_decoder())
+  use opt_start_seq <- decode_optional_field("opt_start_seq", decode.int)
+  use opt_start_time <- decode_optional_field("opt_start_time", decode.string)
+  use deliver_policy <- decode.field(
+    "deliver_policy",
+    deliver_policy_decoder(opt_start_seq, opt_start_time),
+  )
+  use durable_name <- decode_optional_field("durable_name", decode.string)
+  use description <- decode_optional_field("description", decode.string)
+  use filter_subject <- decode_optional_field("filter_subject", decode.string)
+  use ack_wait <- decode_optional_field("ack_wait", decode.int)
+  use inactive_threshold <- decode_optional_field(
+    "inactive_threshold",
+    decode.int,
+  )
+  use max_ack_pending <- decode_optional_field("max_ack_pending", decode.int)
+  use max_deliver <- decode_optional_field("max_deliver", decode.int)
+  use num_replicas <- decode_optional_field("num_replicas", decode.int)
+  use sample_freq <- decode_optional_field("sample_freq", decode.string)
+  use deliver_subject <- decode_optional_field("deliver_subject", decode.string)
+  use deliver_group <- decode_optional_field("deliver_group", decode.string)
+  use headers_only <- decode_optional_field("headers_only", decode.bool)
+
+  decode.success(ConsumerConfig(
+    durable_name:,
+    description:,
+    filter_subject:,
+    ack_policy:,
+    ack_wait:,
+    deliver_policy:,
+    inactive_threshold:,
+    max_ack_pending:,
+    max_deliver:,
+    replay_policy:,
+    num_replicas:,
+    sample_freq:,
+    deliver_subject:,
+    deliver_group:,
+    headers_only:,
+  ))
+}
+
+fn sequence_info_decoder() -> decode.Decoder(SequenceInfo) {
+  use consumer_seq <- decode.field("consumer_seq", decode.int)
+  use stream_seq <- decode.field("stream_seq", decode.int)
+
+  decode.success(SequenceInfo(consumer_seq:, stream_seq:))
 }
 
 //                 //
@@ -301,17 +417,13 @@ pub fn delete(conn: glats.Connection, stream: String, name: String) {
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_delete_data")
-fn decode_delete_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(Nil, #(Int, String))
-
 fn decode_delete(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_delete_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+  body
+  |> json_parse_jetstream_errorable({
+    use _ <- decode.field("success", decode.bool)
+
+    decode.success(Nil)
+  })
 }
 
 //                //
@@ -330,17 +442,16 @@ pub fn names(conn: glats.Connection, stream: String) {
   }
 }
 
-@external(erlang, "Elixir.Glats.Jetstream", "decode_consumer_names_data")
-fn decode_consumer_names_data(
-  data data: dict.Dict(String, dynamic.Dynamic),
-) -> Result(Nil, #(Int, String))
+fn decode_names(body: String) -> Result(List(String), jetstream.JetstreamError) {
+  body
+  |> json_parse_jetstream_errorable({
+    use consumers <- decode.field(
+      "consumers",
+      decode.optional(decode.list(decode.string)),
+    )
 
-fn decode_names(body: String) -> Result(Nil, jetstream.JetstreamError) {
-  json.parse(from: body, using: decode.dict(decode.string, decode.dynamic))
-  |> result.map(decode_consumer_names_data)
-  |> result.map_error(fn(_) { #(-1, "decode error") })
-  |> result.flatten
-  |> result.map_error(js.map_code_to_error)
+    decode.success(consumers |> option.unwrap([]))
+  })
 }
 
 //                      //
@@ -681,4 +792,39 @@ fn replay_pol_to_string(pol: ReplayPolicy) {
     ReplayInstant -> "instant"
     ReplayOriginal -> "original"
   }
+}
+
+//                //
+// Decode helpers //
+//                //
+
+fn decode_optional_field(
+  key: String,
+  field_decoder: decode.Decoder(t),
+  next: fn(option.Option(t)) -> decode.Decoder(final),
+) -> decode.Decoder(final) {
+  decode.optional_field(key, None, decode.optional(field_decoder), next)
+}
+
+fn json_parse_jetstream_errorable(
+  body: String,
+  decoder: decode.Decoder(t),
+) -> Result(t, jetstream.JetstreamError) {
+  json.parse(
+    from: body,
+    using: decode.one_of(decoder |> decode.map(Ok), [
+      {
+        use err_code <- decode.subfield(["error", "err_code"], decode.int)
+        use description <- decode.subfield(
+          ["error", "description"],
+          decode.string,
+        )
+
+        decode.success(Error(#(err_code, description)))
+      },
+    ]),
+  )
+  |> result.map_error(fn(_) { #(-1, "decode error") })
+  |> result.flatten
+  |> result.map_error(js.map_code_to_error)
 }

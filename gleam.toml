@@ -1,5 +1,5 @@
 name = "glats"
-version = "0.9.0"
+version = "0.9.1"
 description = "A NATS client for Gleam."
 
 licences = ["MIT"]
